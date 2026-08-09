@@ -1,7 +1,8 @@
 import { Rational } from './rational';
 import {
   MathObject, NumberObject, TapeObject, UnknownObject, Tool,
-  makeTool, toolInvertsSticker, exprFor, toolLabel, tapePieceLabels, tapeNumerator, ToolOp,
+  makeTool, makeCompositeTool, toolInvertsSticker, exprFor, toolLabel,
+  tapePieceLabels, tapeNumerator, PrimitiveOp,
 } from './model';
 
 /**
@@ -31,7 +32,7 @@ interface TapeState {
   strictGrid: boolean;
   unitLen: Rational | null;
 }
-interface UnknownState { ops: { op: ToolOp; n: Rational }[]; rhs: Rational; revealed: boolean }
+interface UnknownState { ops: { op: PrimitiveOp; n: Rational }[]; rhs: Rational; revealed: boolean }
 
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
@@ -134,8 +135,16 @@ export class Session {
 
   // ---------- инструменты ----------
 
-  addTool(op: ToolOp, n: Rational): Tool {
+  addTool(op: PrimitiveOp, n: Rational): Tool {
     const tool = makeTool(op, n, nextId('tool'));
+    this.tools.set(tool.id, tool);
+    this.emit({ kind: 'tool-added', tool });
+    return tool;
+  }
+
+  /** Комбо: последовательность примитивных шагов под одним именем. */
+  addComposite(steps: { op: PrimitiveOp; n: Rational }[], name?: string): Tool {
+    const tool = makeCompositeTool(steps, name, nextId('combo'));
     this.tools.set(tool.id, tool);
     this.emit({ kind: 'tool-added', tool });
     return tool;
@@ -181,6 +190,27 @@ export class Session {
       return false;
     }
 
+    // Обратный комбо: обращённые шаги в обратном порядке — (f∘g)⁻¹ = g⁻¹∘f⁻¹
+    if (tool.steps) {
+      const invSteps: { op: PrimitiveOp; n: Rational }[] = [];
+      for (const s of [...tool.steps].reverse()) {
+        const spec = makeTool(s.op, s.n).inverseSpec();
+        if (!spec) {
+          this.emit({
+            kind: 'tool-rejected',
+            objectId,
+            tool,
+            reason: `в комбо есть необратимый шаг «${toolLabel(s.op, s.n)}»`,
+          });
+          return false;
+        }
+        invSteps.push(spec);
+      }
+      const inverse = makeCompositeTool(invSteps);
+      inverse.hidden = tool.hidden;
+      return this.applyWith(inverse, obj);
+    }
+
     const spec = tool.inverseSpec();
     if (!spec) {
       this.emit({
@@ -224,6 +254,18 @@ export class Session {
     const tool = this.tools.get(toolId);
     if (!u || u.kind !== 'unknown' || !tool) return false;
 
+    // Комбо на весах раскладывается на примитивные наклейки: макрос прозрачен,
+    // снимать всё равно по одной
+    if (tool.steps) {
+      for (const s of tool.steps) {
+        if (!this.scalesStep(u, makeTool(s.op, s.n))) return false;
+      }
+      return true;
+    }
+    return this.scalesStep(u, tool);
+  }
+
+  private scalesStep(u: UnknownObject, tool: Tool): boolean {
     if (u.revealed) {
       this.emit({ kind: 'tool-rejected', objectId: u.id, tool, reason: 'уравнение решено — создай новое' });
       return false;
@@ -240,7 +282,7 @@ export class Session {
 
     u.rhs = tool.apply(u.rhs);
     if (snip) u.ops.pop();
-    else u.ops.push({ op: tool.op, n: tool.n });
+    else u.ops.push({ op: tool.op as PrimitiveOp, n: tool.n }); // сюда попадают только примитивы
     if (snip && u.ops.length === 0) u.revealed = true;
 
     this.applyLog.push({

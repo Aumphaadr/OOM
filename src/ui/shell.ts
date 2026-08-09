@@ -1,6 +1,6 @@
 import { Session } from '../core/session';
 import { Rational } from '../core/rational';
-import { subtitleFor, visibleLabel, isUnaryOp, ToolOp } from '../core/model';
+import { subtitleFor, visibleLabel, isUnaryOp, toolLabel, PrimitiveOp } from '../core/model';
 import { exportBoard, importBoard } from '../core/serialize';
 import { CanvasHost } from '../render/canvasHost';
 import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
@@ -10,7 +10,7 @@ import { icon } from './icons';
 
 const BOARD_STORAGE_KEY = 'oom-board-v1';
 
-const OP_FROM_SELECT: Record<string, ToolOp> = {
+const OP_FROM_SELECT: Record<string, PrimitiveOp> = {
   add: 'add', sub: 'sub', mul: 'mul', div: 'div',
   sq: 'sq', cube: 'cube', sqrt: 'sqrt', cbrt: 'cbrt', abs: 'abs',
 };
@@ -92,6 +92,8 @@ export class Shell {
     (document.querySelector('.tool-forge') as HTMLElement).hidden = !on;
     (document.getElementById('spawn-row') as HTMLElement).hidden = !on;
     (document.getElementById('spawn-set-btn') as HTMLElement).hidden = !on;
+    (document.getElementById('combo-toggle') as HTMLElement).hidden = !on;
+    if (!on) (document.getElementById('combo-forge') as HTMLElement).hidden = true;
     this.renderTools();
   }
 
@@ -153,7 +155,10 @@ export class Shell {
       const chip = document.createElement('button');
       chip.className = 'tool-chip' + (tool.id === this.hand.toolId ? ' in-hand' : '');
       chip.innerHTML = `<span class="ic">${icon('hammer', 13)}</span>${visibleLabel(tool)}`;
-      chip.title = tool.id === this.hand.toolId ? 'В руке. Клик — положить' : 'Взять в руку';
+      const comboHint = tool.steps && !tool.hidden
+        ? ` — комбо: ${tool.steps.map((s) => toolLabel(s.op, s.n)).join(' ∘ ')}`
+        : '';
+      chip.title = (tool.id === this.hand.toolId ? 'В руке. Клик — положить' : 'Взять в руку') + comboHint;
       chip.addEventListener('click', () => {
         this.setHand(this.hand.toolId === tool.id ? null : tool.id);
       });
@@ -198,6 +203,61 @@ export class Shell {
       } catch (err) {
         this.say(err instanceof Error ? err.message : String(err));
       }
+    });
+
+    // Конструктор комбо: копим шаги, собираем в один инструмент
+    const comboSteps: { op: PrimitiveOp; n: Rational }[] = [];
+    const comboForge = document.getElementById('combo-forge')!;
+    const comboOp = document.getElementById('combo-op') as HTMLSelectElement;
+    const comboN = document.getElementById('combo-n') as HTMLInputElement;
+    const comboName = document.getElementById('combo-name') as HTMLInputElement;
+    const comboStepsEl = document.getElementById('combo-steps')!;
+
+    document.getElementById('combo-toggle')!.addEventListener('click', () => {
+      comboForge.hidden = !comboForge.hidden;
+    });
+    const syncComboN = () => {
+      const op = OP_FROM_SELECT[comboOp.value] ?? 'add';
+      comboN.style.display = isUnaryOp(op) ? 'none' : '';
+    };
+    comboOp.addEventListener('change', syncComboN);
+    syncComboN();
+
+    const renderComboSteps = () => {
+      comboStepsEl.innerHTML = '';
+      comboSteps.forEach((s, i) => {
+        const chip = document.createElement('button');
+        chip.className = 'tool-chip';
+        chip.textContent = `${i + 1}. ${toolLabel(s.op, s.n)}`;
+        chip.title = 'Убрать шаг';
+        chip.addEventListener('click', () => {
+          comboSteps.splice(i, 1);
+          renderComboSteps();
+        });
+        comboStepsEl.appendChild(chip);
+      });
+    };
+
+    document.getElementById('combo-add')!.addEventListener('click', () => {
+      if (comboSteps.length >= 6) return this.say('Комбо из шести шагов достаточно любому.');
+      const op = OP_FROM_SELECT[comboOp.value] ?? 'add';
+      let n = Rational.of(0);
+      if (!isUnaryOp(op)) {
+        const parsed = Rational.parse(comboN.value);
+        if (!parsed) return this.say('Не понимаю число: ' + comboN.value);
+        if (op === 'div' && parsed.isZero()) return this.say('Деление на ноль не входит в курс школьной математики!');
+        n = parsed;
+      }
+      comboSteps.push({ op, n });
+      renderComboSteps();
+    });
+
+    document.getElementById('combo-btn')!.addEventListener('click', () => {
+      if (!comboSteps.length) return this.say('Сначала добавь хотя бы один шаг.');
+      this.session.addComposite([...comboSteps], comboName.value);
+      comboSteps.length = 0;
+      comboName.value = '';
+      renderComboSteps();
     });
 
     const spawnBtn = document.getElementById('spawn-btn')!;

@@ -60,9 +60,9 @@ export function drawHammer(
   g.ellipse(0, headY + HAMMER.headH, 10, 5, 0, 0, Math.PI * 2);
   g.fill();
 
-  // Подпись операции на бойке, с чёрным гало для читаемости
+  // Подпись операции на бойке, с чёрным гало; длинные (комбо) ужимаются
   g.fillStyle = theme.textPrimary;
-  g.font = 'bold 18px Inter, sans-serif';
+  g.font = `bold ${label.length > 8 ? 11 : label.length > 5 ? 14 : 18}px Inter, sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.shadowColor = 'black';
