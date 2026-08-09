@@ -1,0 +1,20 @@
+{
+  "id": "pow-01",
+  "task": "Возведи в квадрат все три числа. Проговаривай вслух: семью семь…",
+  "scene": "boxes",
+  "goal": { "kind": "any-object-value", "value": "81" },
+  "maxSteps": 3,
+  "hints": [
+    "x² — это число, умноженное на СЕБЯ. Не на два!",
+    "7² = 49, 8² = 64, 9² = 81."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "sq", "n": "0/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["7/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["8/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["9/1"], "scenePos": {} }
+    ]
+  }
+}

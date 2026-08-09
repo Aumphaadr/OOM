@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ООМ — Объектно-ориентированная математика</title>
+  <link rel="stylesheet" href="/src/ui/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <button id="btn-sidebar" class="btn ghost" title="Показать/скрыть панель" data-icon="menu"></button>
+      <h1><span class="ic" data-icon="hammer" data-icon-size="20"></span>ООМ</h1>
+      <nav id="scene-tabs" class="scene-tabs"></nav>
+      <div class="topbar-right">
+        <button id="btn-reader" class="btn ghost" title="Учебник" data-icon="book"></button>
+        <button id="btn-export-ex" class="btn ghost" title="Скопировать доску как заготовку упражнения" data-icon="export"></button>
+        <select id="lesson-select" title="Загрузить урок-заготовку"></select>
+        <button id="btn-save" class="btn ghost" title="Сохранить доску" data-icon="save"></button>
+        <button id="btn-load" class="btn ghost" title="Загрузить сохранённую доску" data-icon="open"></button>
+        <div class="history-wrap">
+          <button id="btn-history" class="btn ghost" title="История" data-icon="history"></button>
+          <div id="history-dropdown" class="history-dropdown" hidden>
+            <ol id="subtitles" class="subtitles"></ol>
+          </div>
+        </div>
+        <button id="btn-undo" class="btn ghost" title="Отменить последнее действие"><span class="ic" data-icon="undo"></span>Отменить</button>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="sidebar" id="sidebar">
+        <section class="panel" id="panel-tools">
+          <h3>Инструменты</h3>
+          <div id="tool-list" class="tool-list"></div>
+          <div class="tool-forge">
+            <select id="forge-op">
+              <optgroup label="арифметика">
+                <option value="add">увеличить на</option>
+                <option value="sub">уменьшить на</option>
+                <option value="mul">умножить на</option>
+                <option value="div">разделить на</option>
+              </optgroup>
+              <optgroup label="функции">
+                <option value="sq">в квадрат (x²)</option>
+                <option value="cube">в куб (x³)</option>
+                <option value="sqrt">корень (√x)</option>
+                <option value="cbrt">кубокорень (∛x)</option>
+                <option value="abs">модуль (|x|)</option>
+              </optgroup>
+            </select>
+            <input id="forge-n" type="number" value="5" step="any" />
+            <button id="forge-btn" class="btn accent"><span class="ic" data-icon="hammer"></span>Создать</button>
+          </div>
+          <p class="hint" id="hand-hint">Кликни по инструменту — возьмёшь его в руку.
+            Клик по объекту — удар. Правая кнопка — положить инструмент.</p>
+        </section>
+        <section class="panel" id="panel-objects">
+          <h3>Объекты</h3>
+          <div class="spawn-row" id="spawn-row">
+            <input id="spawn-value" type="number" value="7" step="any" />
+            <button id="spawn-btn" class="btn primary"><span class="ic" data-icon="plus"></span>Число</button>
+          </div>
+          <button id="spawn-set-btn" class="btn ghost" title="Создать набор чисел">Набор 10…0</button>
+          <button id="hit-all-btn" class="btn ghost" title="Ударить инструментом в руке по всем объектам">Ударить по всем</button>
+        </section>
+        <section class="panel" id="panel-scene" hidden></section>
+      </aside>
+      <div class="stage-wrap">
+        <canvas id="stage"></canvas>
+        <button id="edge-sidebar" class="edge-toggle" title="Свернуть/развернуть панель"></button>
+        <button id="edge-reader" class="edge-toggle" title="Учебник"></button>
+        <div id="task-panel" class="task-panel" hidden>
+          <div class="task-head">
+            <span id="task-status"></span>
+            <b>Задание</b>
+            <span id="task-steps" class="task-steps"></span>
+            <span class="task-actions">
+              <button id="task-hint" class="btn ghost" title="Подсказка" data-icon="bulb"></button>
+              <button id="task-reset" class="btn ghost" title="Начать заново" data-icon="refresh"></button>
+              <button id="task-close" class="btn ghost" title="Закрыть задание" data-icon="close"></button>
+            </span>
+          </div>
+          <p id="task-text"></p>
+          <p id="task-hint-text" class="hint" hidden></p>
+        </div>
+      </div>
+      <aside id="reader" class="reader" hidden>
+        <div id="reader-body" class="reader-body"></div>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "id": "neg-03",
+  "task": "Сделай все числа положительными. Смотри, как фишки прыгают через ноль.",
+  "scene": "numberline",
+  "goal": { "kind": "all-values", "check": "positive" },
+  "maxSteps": 3,
+  "hints": [
+    "Молоток ×(−1) не сдвигает число, а отражает его относительно нуля.",
+    "Каждой фишке достаточно одного удара."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mul", "n": "-1/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["-4/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-2/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-1/1"], "scenePos": {} }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "neg-02",
+  "task": "Преврати −3 ровно в 0. Постарайся уложиться в два удара.",
+  "scene": "boxes",
+  "goal": { "kind": "any-object-value", "value": "0" },
+  "maxSteps": 2,
+  "hints": [
+    "Сначала прикинь: −3 + 7 — это сколько?",
+    "После +7 останется 4. Какой инструмент доведёт до нуля?"
+  ],
+  "board": {
+    "v": 1,
+    "tools": [
+      { "op": "add", "n": "7/1", "hidden": false },
+      { "op": "sub", "n": "4/1", "hidden": false }
+    ],
+    "objects": [{ "kind": "number", "trail": ["-3/1"], "scenePos": {} }]
+  }
+}
