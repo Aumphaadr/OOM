@@ -1,8 +1,8 @@
 import { Rational } from './rational';
 import {
-  MathObject, NumberObject, TapeObject, UnknownObject, Tool,
+  MathObject, NumberObject, TapeObject, UnknownObject, RectObject, Tool,
   makeTool, makeCompositeTool, toolInvertsSticker, exprFor, toolLabel,
-  tapePieceLabels, tapeNumerator, PrimitiveOp,
+  tapePieceLabels, tapeNumerator, rectPieceAreas, PrimitiveOp,
 } from './model';
 
 /**
@@ -21,6 +21,8 @@ export type SessionEvent =
   | { kind: 'tape-changed'; object: TapeObject; note: string }
   | { kind: 'tape-refused'; object: TapeObject; reason: string }
   | { kind: 'scales-step'; object: UnknownObject; tool: Tool; snip: boolean; note: string }
+  | { kind: 'var-set'; object: NumberObject; note: string }
+  | { kind: 'rect-changed'; object: RectObject; note: string }
   | { kind: 'undo'; objectId: string; note: string };
 
 export type SessionListener = (e: SessionEvent) => void;
@@ -34,10 +36,13 @@ interface TapeState {
 }
 interface UnknownState { ops: { op: PrimitiveOp; n: Rational }[]; rhs: Rational; revealed: boolean }
 
+interface RectState { w: Rational; h: Rational; cutsX: Rational[]; cutsY: Rational[] }
+
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
   | { objectId: string; kind: 'tape'; before: TapeState; after: TapeState }
-  | { objectId: string; kind: 'unknown'; before: UnknownState; after: UnknownState };
+  | { objectId: string; kind: 'unknown'; before: UnknownState; after: UnknownState }
+  | { objectId: string; kind: 'rect'; before: RectState; after: RectState };
 
 const TAPE_MODE_MIN = 1; // «/1» — целая лента без швов, резать нечего
 const TAPE_MODE_MAX = 100;
@@ -75,6 +80,74 @@ export class Session {
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
     return obj;
+  }
+
+  spawnVariable(name: string, min: Rational, max: Rational, step: Rational): NumberObject {
+    const obj = this.spawnObject(Rational.of(0));
+    obj.variable = { name, min, max, step };
+    // стартовое значение — ноль, зажатый в границы
+    obj.value = this.clampToVariable(obj, Rational.of(0));
+    obj.trail.splice(0, obj.trail.length, obj.value);
+    return obj;
+  }
+
+  private clampToVariable(obj: NumberObject, v: Rational): Rational {
+    const vr = obj.variable!;
+    if (v.compare(vr.min) < 0) return vr.min;
+    if (v.compare(vr.max) > 0) return vr.max;
+    // прищёлкиваем к сетке min + k·step
+    const k = v.sub(vr.min).div(vr.step);
+    const snapped = Rational.of((k.num * 2n + k.den) / (k.den * 2n)); // округление к ближайшему
+    return vr.min.add(snapped.mul(vr.step));
+  }
+
+  /** База значения на время протяжки ползунка (для одной записи в журнал). */
+  private readonly varDragBase = new Map<string, Rational>();
+
+  /**
+   * Установка значения переменной. commit=false — тихая протяжка ползунка;
+   * commit=true (отпускание) — одна запись в журнал и один субтитр.
+   */
+  setVariableValue(objectId: string, v: Rational, commit = true): boolean {
+    const obj = this.objects.get(objectId);
+    if (!obj || obj.kind !== 'number' || !obj.variable) return false;
+    if (!this.varDragBase.has(objectId)) this.varDragBase.set(objectId, obj.value);
+    obj.value = this.clampToVariable(obj, v);
+
+    if (commit) {
+      const before = this.varDragBase.get(objectId)!;
+      this.varDragBase.delete(objectId);
+      if (!before.equals(obj.value)) {
+        obj.trail.push(obj.value);
+        this.applyLog.push({ objectId, kind: 'number', before, after: obj.value });
+        this.emit({ kind: 'var-set', object: obj, note: `${obj.variable.name} = ${obj.value.toDisplay()}` });
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Настройка переменной: имя, границы, шаг. Значение перезажимается
+   * в новые рамки (с записью в журнал, если оно изменилось).
+   */
+  setVariableDef(objectId: string, def: { name: string; min: Rational; max: Rational; step: Rational }): boolean {
+    const obj = this.objects.get(objectId);
+    if (!obj || obj.kind !== 'number' || !obj.variable) return false;
+    if (def.min.compare(def.max) >= 0 || def.step.sign() <= 0) return false;
+    obj.variable = { ...def };
+    const before = obj.value;
+    const clamped = this.clampToVariable(obj, obj.value);
+    if (!clamped.equals(before)) {
+      obj.value = clamped;
+      obj.trail.push(clamped);
+      this.applyLog.push({ objectId, kind: 'number', before, after: clamped });
+    }
+    this.emit({
+      kind: 'var-set',
+      object: obj,
+      note: `${def.name}: диапазон ${def.min.toDisplay()}…${def.max.toDisplay()}, шаг ${def.step.toDisplay()}`,
+    });
+    return true;
   }
 
   spawnTape(whole: Rational, mode: number | null, label?: string): TapeObject {
@@ -121,6 +194,7 @@ export class Session {
     const note = quiet ? ''
       : obj.kind === 'tape' ? `${this.tapeName(obj)} удалена`
       : obj.kind === 'unknown' ? `уравнение с «${obj.name}» убрано`
+      : obj.kind === 'rect' ? `${obj.label} удалён`
       : `число ${obj.value.toDisplay()} удалено`;
     this.objects.delete(id);
     this.emit({ kind: 'object-removed', objectId: id, note });
@@ -240,6 +314,123 @@ export class Session {
     this.applyLog.push({ objectId: obj.id, kind: 'number', before, after });
     this.emit({ kind: 'tool-applied', objectId: obj.id, tool, before, after });
     return true;
+  }
+
+  // ---------- прямоугольники ----------
+
+  private rectCounter = 0;
+
+  spawnRect(w: Rational, h: Rational): RectObject {
+    const obj: RectObject = {
+      kind: 'rect',
+      id: nextId('rect'),
+      label: `П${++this.rectCounter}`,
+      w,
+      h,
+      cutsX: [],
+      cutsY: [],
+      showW: true,
+      showH: true,
+      showArea: true,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    return obj;
+  }
+
+  private rectState(r: RectObject): RectState {
+    return { w: r.w, h: r.h, cutsX: [...r.cutsX], cutsY: [...r.cutsY] };
+  }
+
+  private rectNote(r: RectObject): string {
+    if (r.h.isZero()) return `${r.label}: отрезок длины ${r.w.toDisplay()}`;
+    const areas = rectPieceAreas(r);
+    const body = `${r.label}: ${r.w.toDisplay()}×${r.h.toDisplay()}, площадь ${r.w.mul(r.h).toDisplay()}`;
+    return areas.length > 1 ? `${body} = ${areas.map((a) => a.toDisplay()).join(' + ')}` : body;
+  }
+
+  private commitRect(r: RectObject, before: RectState, note: string): true {
+    this.applyLog.push({ objectId: r.id, kind: 'rect', before, after: this.rectState(r) });
+    this.emit({ kind: 'rect-changed', object: r, note });
+    return true;
+  }
+
+  /** База размеров на время протяжки кромки (одна запись в журнал на жест). */
+  private readonly rectDragBase = new Map<string, RectState>();
+
+  /**
+   * Размеры: транзиентная протяжка кромок + один коммит на отпускании.
+   * Резы, выпавшие за новые границы, исчезают при коммите (точка на стороне
+   * не переживает укорочение стороны).
+   */
+  setRectSize(objectId: string, w: Rational, h: Rational, commit = true): boolean {
+    const r = this.objects.get(objectId);
+    if (!r || r.kind !== 'rect') return false;
+    if (!this.rectDragBase.has(objectId)) this.rectDragBase.set(objectId, this.rectState(r));
+
+    const half = Rational.of(1, 2);
+    const clampSnap = (v: Rational, min: Rational, max: Rational): Rational => {
+      // прищёлкиваем к сетке половинок
+      const k = v.div(half);
+      const snapped = half.mul(Rational.of((k.num * 2n + (k.num < 0n ? -k.den : k.den)) / (k.den * 2n)));
+      if (snapped.compare(min) < 0) return min;
+      if (snapped.compare(max) > 0) return max;
+      return snapped;
+    };
+    r.w = clampSnap(w, half, Rational.of(60));
+    r.h = clampSnap(h, Rational.of(0), Rational.of(40));
+
+    if (commit) {
+      const before = this.rectDragBase.get(objectId)!;
+      this.rectDragBase.delete(objectId);
+      r.cutsX = r.cutsX.filter((c) => c.compare(r.w) < 0);
+      r.cutsY = r.cutsY.filter((c) => c.compare(r.h) < 0);
+      const changed = !before.w.equals(r.w) || !before.h.equals(r.h);
+      if (changed) {
+        const grew = before.h.isZero() && !r.h.isZero();
+        return this.commitRect(r, before, grew
+          ? `${r.label}: экструзия ${before.w.toDisplay()}×0 → ${this.rectNote(r).split(': ')[1]}`
+          : this.rectNote(r));
+      }
+    }
+    return true;
+  }
+
+  cutRect(objectId: string, axis: 'x' | 'y', pos: Rational): boolean {
+    const r = this.objects.get(objectId);
+    if (!r || r.kind !== 'rect') return false;
+    const limit = axis === 'x' ? r.w : r.h;
+    if (pos.sign() <= 0 || pos.compare(limit) >= 0) return false;
+    const cuts = axis === 'x' ? r.cutsX : r.cutsY;
+    if (cuts.some((c) => c.equals(pos))) return false;
+    const before = this.rectState(r);
+    const next = [...cuts, pos].sort((a, b) => a.compare(b));
+    if (axis === 'x') r.cutsX = next;
+    else r.cutsY = next;
+    return this.commitRect(r, before, `${r.label}: рез ${axis} = ${pos.toDisplay()} → ${rectPieceAreas(r).map((a) => a.toDisplay()).join(' | ')}`);
+  }
+
+  mergeRect(objectId: string, axis: 'x' | 'y', pos: Rational): boolean {
+    const r = this.objects.get(objectId);
+    if (!r || r.kind !== 'rect') return false;
+    const cuts = axis === 'x' ? r.cutsX : r.cutsY;
+    if (!cuts.some((c) => c.equals(pos))) return false;
+    const before = this.rectState(r);
+    const next = cuts.filter((c) => !c.equals(pos));
+    if (axis === 'x') r.cutsX = next;
+    else r.cutsY = next;
+    return this.commitRect(r, before, `${r.label}: склейка → ${this.rectNote(r)}`);
+  }
+
+  /** Поворот на 90°: стороны и резы меняются осями, площади кусков сохраняются. */
+  rotateRect(objectId: string): boolean {
+    const r = this.objects.get(objectId);
+    if (!r || r.kind !== 'rect' || r.h.isZero()) return false; // отрезку вертеться некуда
+    const before = this.rectState(r);
+    [r.w, r.h] = [before.h, before.w];
+    [r.cutsX, r.cutsY] = [before.cutsY.slice(), before.cutsX.slice()];
+    return this.commitRect(r, before, `${r.label}: поворот → ${this.rectNote(r).split(': ')[1] ?? ''}`);
   }
 
   // ---------- весы ----------
@@ -473,6 +664,14 @@ export class Session {
       obj.strictGrid = last.before.strictGrid;
       obj.unitLen = last.before.unitLen;
       this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label}: ${this.tapePieces(obj)}` });
+      return true;
+    }
+    if (last.kind === 'rect' && obj.kind === 'rect') {
+      obj.w = last.before.w;
+      obj.h = last.before.h;
+      obj.cutsX = [...last.before.cutsX];
+      obj.cutsY = [...last.before.cutsY];
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.rectNote(obj)}` });
       return true;
     }
     if (last.kind === 'unknown' && obj.kind === 'unknown') {

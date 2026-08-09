@@ -5,6 +5,7 @@ import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
 import { TapeObject, tapePieceLabels, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
 import { icon } from '../ui/icons';
+import { clipFromObject, spawnFromClip } from '../core/clipboard';
 
 const LEFT = 74; // левая кромка лент по умолчанию (новые встают стопкой)
 const TOP = 72;
@@ -50,9 +51,37 @@ export class TapesScene implements Scene {
   private readonly swing = new SwingAnim();
   private readonly labels = new FlyingLabels();
 
+  /** У лент нет выделения: Ctrl+C/X работают с лентой под курсором. */
+  private readonly keyHandler = (e: KeyboardEvent): void => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (!(e.ctrlKey || e.metaKey) || !this.ctx) return;
+    const k = e.code; // физический код: работает на любой раскладке
+    if (k === 'KeyC' || k === 'KeyX') {
+      const t = this.pointer.inside ? this.tapeAt(this.pointer.x, this.pointer.y) : null;
+      if (!t) return;
+      e.preventDefault();
+      const item = clipFromObject(t, 0, 0);
+      if (item) this.ctx.clipboard.items = [item];
+      if (k === 'KeyX' && this.ctx.restrictions.construct) this.ctx.session.removeObject(t.id);
+    }
+    if (k === 'KeyV' && this.ctx.restrictions.construct && this.ctx.clipboard.items.length) {
+      e.preventDefault();
+      const ax = this.pointer.inside ? this.pointer.x : LEFT;
+      const ay = this.pointer.inside ? this.pointer.y : TOP;
+      for (const item of this.ctx.clipboard.items) {
+        const obj = spawnFromClip(this.ctx.session, item);
+        if (obj.kind === 'tape') {
+          obj.scenePos.set(this.id, { x: ax + item.dx, y: ay + item.dy });
+        }
+      }
+    }
+  };
+
   attach(ctx: SceneContext): void {
     this.ctx = ctx;
     this.buildPopup();
+    window.addEventListener('keydown', this.keyHandler);
     document.addEventListener('pointerdown', this.outsideClick);
     this.unsubscribe = ctx.session.on((e) => {
       if (e.kind === 'tool-rejected') {
@@ -71,6 +100,7 @@ export class TapesScene implements Scene {
   }
 
   detach(): void {
+    window.removeEventListener('keydown', this.keyHandler);
     document.removeEventListener('pointerdown', this.outsideClick);
     if (this.canvasEl) this.canvasEl.style.cursor = '';
     this.popup?.remove();

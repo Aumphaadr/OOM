@@ -37,6 +37,7 @@ export class Shell {
       session,
       hand: this.hand,
       restrictions: this.restrictions,
+      clipboard: { items: [] },
       hit: (objectId, toolId) => this.hit(objectId, toolId),
       dropHand: () => this.setHand(null),
       takeHand: (toolId) => this.setHand(toolId),
@@ -69,7 +70,7 @@ export class Shell {
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.setHand(null);
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
         e.preventDefault();
         this.session.undo();
       }
@@ -91,6 +92,7 @@ export class Shell {
     this.restrictions.construct = on;
     (document.querySelector('.tool-forge') as HTMLElement).hidden = !on;
     (document.getElementById('spawn-row') as HTMLElement).hidden = !on;
+    (document.getElementById('var-row') as HTMLElement).hidden = !on;
     (document.getElementById('spawn-set-btn') as HTMLElement).hidden = !on;
     (document.getElementById('combo-toggle') as HTMLElement).hidden = !on;
     if (!on) (document.getElementById('combo-forge') as HTMLElement).hidden = true;
@@ -268,6 +270,16 @@ export class Shell {
       this.session.spawnObject(v);
     });
 
+    const varName = document.getElementById('var-name') as HTMLInputElement;
+    document.getElementById('spawn-var-btn')!.addEventListener('click', () => {
+      const name = varName.value.trim() || 'a';
+      this.session.spawnVariable(name, Rational.of(-10), Rational.of(10), Rational.of(1));
+      // следующая буква наготове: a → b → c…
+      if (/^[a-z]$/i.test(name) && name.toLowerCase() !== 'z') {
+        varName.value = String.fromCharCode(name.charCodeAt(0) + 1);
+      }
+    });
+
     document.getElementById('spawn-set-btn')!.addEventListener('click', () => {
       for (let i = 10; i >= 0; i--) this.session.spawnObject(Rational.of(i));
     });
@@ -369,6 +381,10 @@ export class Shell {
       } else if (e.kind === 'tool-rejected') {
         this.say(`Инструмент ${e.tool.label} отказался: ${e.reason}`);
       } else if (e.kind === 'tape-changed' || e.kind === 'scales-step') {
+        this.say(e.note);
+      } else if (e.kind === 'var-set') {
+        this.say(e.note, true);
+      } else if (e.kind === 'rect-changed') {
         this.say(e.note);
       } else if (e.kind === 'tape-refused') {
         this.say(`${e.object.label} отказалась: ${e.reason}`);

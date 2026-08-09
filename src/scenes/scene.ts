@@ -1,5 +1,6 @@
 import { CanvasClient } from '../render/canvasHost';
 import { Session } from '../core/session';
+import { Clipboard } from '../core/clipboard';
 
 /** Рука преподавателя: взятый инструмент (или пустая). Живёт в оболочке, сцены её читают. */
 export interface HandState {
@@ -19,6 +20,8 @@ export interface SceneContext {
   session: Session;
   hand: HandState;
   restrictions: Restrictions;
+  /** Внутренний буфер обмена (Ctrl+C/X/V), сквозной между сценами. */
+  clipboard: Clipboard;
   /** Удар по объекту: инструментом в руке или явно указанным (напр., участком конвейера).
    *  Оболочка применяет через сессию — сцена узнаёт результат из журнала, как все. */
   hit(objectId: string, toolId?: string): void;

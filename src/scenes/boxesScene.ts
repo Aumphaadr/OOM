@@ -3,6 +3,8 @@ import { theme } from '../render/theme';
 import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, ShakeAnim, SwingAnim, wobbleAngle } from '../render/motion';
 import { NumberObject, visibleLabel } from '../core/model';
+import { Rational } from '../core/rational';
+import { clipFromObject, spawnFromClip } from '../core/clipboard';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
 
 const BOX_W = 104;
@@ -32,10 +34,20 @@ export class BoxesScene implements Scene {
   private band: { x0: number; y0: number; x1: number; y1: number; additive: boolean } | null = null;
   /** Групповое перетаскивание: смещение каждой выделенной коробки от курсора. */
   private groupDrag: Map<string, { dx: number; dy: number }> | null = null;
+  /** Протяжка ползунка переменной. */
+  private sliderDrag: NumberObject | null = null;
 
   private readonly shakes = new Map<string, ShakeAnim>();
   private readonly swing = new SwingAnim();
   private readonly labels = new FlyingLabels();
+
+  private varCard: HTMLElement | null = null;
+  private varCardId: string | null = null;
+  private readonly outsideClick = (e: PointerEvent): void => {
+    if (this.varCard && !this.varCard.hidden && !this.varCard.contains(e.target as Node)) {
+      if ((e.target as HTMLElement).id !== 'stage') this.hideVarCard();
+    }
+  };
 
   private readonly keyHandler = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
@@ -45,11 +57,46 @@ export class BoxesScene implements Scene {
       this.deleteSelection();
     }
     if (e.key === 'Escape') this.selection.clear();
+
+    if ((e.ctrlKey || e.metaKey) && this.ctx) {
+      const k = e.code; // физический код: работает на любой раскладке
+      if (k === 'KeyC' || k === 'KeyX') {
+        // копия: снимки выделенных со смещениями от якоря группы
+        const positions = [...this.selection]
+          .map((id) => ({ id, pos: this.posOf(id) }))
+          .filter((p): p is { id: string; pos: BoxPos } => !!p.pos);
+        if (!positions.length) return;
+        e.preventDefault();
+        const ax = Math.min(...positions.map((p) => p.pos.x));
+        const ay = Math.min(...positions.map((p) => p.pos.y));
+        this.ctx.clipboard.items = positions.flatMap(({ id, pos }) => {
+          const obj = this.ctx!.session.objects.get(id);
+          const item = obj && clipFromObject(obj, pos.x - ax, pos.y - ay);
+          return item ? [item] : [];
+        });
+        if (k === 'KeyX' && this.ctx.restrictions.construct) this.deleteSelection();
+      }
+      if (k === 'KeyV' && this.ctx.restrictions.construct && this.ctx.clipboard.items.length) {
+        e.preventDefault();
+        const ax = this.pointer.inside ? this.pointer.x : 120;
+        const ay = this.pointer.inside ? this.pointer.y : 120;
+        this.selection.clear();
+        for (const item of this.ctx.clipboard.items) {
+          const obj = spawnFromClip(this.ctx.session, item);
+          if (obj.kind === 'number') {
+            obj.scenePos.set(this.id, { x: ax + item.dx, y: ay + item.dy });
+            this.selection.add(obj.id);
+          }
+        }
+      }
+    }
   };
 
   attach(ctx: SceneContext): void {
     this.ctx = ctx;
     window.addEventListener('keydown', this.keyHandler);
+    document.addEventListener('pointerdown', this.outsideClick);
+    this.buildVarCard();
     this.unsubscribe = ctx.session.on((e) => {
       if (e.kind === 'tool-applied') {
         const pos = this.posOf(e.objectId);
@@ -72,6 +119,9 @@ export class BoxesScene implements Scene {
 
   detach(): void {
     window.removeEventListener('keydown', this.keyHandler);
+    document.removeEventListener('pointerdown', this.outsideClick);
+    this.varCard?.remove();
+    this.varCard = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.ctx = null;
@@ -137,6 +187,86 @@ export class BoxesScene implements Scene {
     return { x: pos.x + BOX_W - 4, y: pos.y + 4 };
   }
 
+  /** Протяжка ползунка: позиция курсора → значение в границах переменной. */
+  private slideTo(obj: NumberObject, px: number, commit = false): void {
+    if (!this.ctx || !obj.variable) return;
+    const pos = obj.scenePos.get(this.id);
+    if (!pos) return;
+    const t = Math.min(Math.max((px - pos.x) / BOX_W, 0), 1);
+    const minF = obj.variable.min.toNumber();
+    const maxF = obj.variable.max.toNumber();
+    const raw = minF + t * (maxF - minF);
+    this.ctx.session.setVariableValue(obj.id, Rational.of(Math.round(raw * 1e6), 1e6), commit);
+  }
+
+  private buildVarCard(): void {
+    const host = document.querySelector('.stage-wrap');
+    if (!host) return;
+    this.varCard = document.createElement('div');
+    this.varCard.className = 'tape-popup';
+    this.varCard.hidden = true;
+    this.varCard.innerHTML = `
+      <div class="task-head"><b>Переменная</b>
+        <span class="task-actions"><button id="vc-close" class="btn ghost" title="Закрыть">✕</button></span>
+      </div>
+      <div class="series-row">
+        <label class="field">имя<input id="vc-name" maxlength="2" /></label>
+        <label class="field">шаг<input id="vc-step" /></label>
+      </div>
+      <div class="series-row">
+        <label class="field">от<input id="vc-min" /></label>
+        <label class="field">до<input id="vc-max" /></label>
+      </div>
+      <button id="vc-apply" class="btn primary">Применить</button>
+      <p id="vc-status" class="hint" hidden></p>
+    `;
+    host.appendChild(this.varCard);
+    this.varCard.querySelector('#vc-close')!.addEventListener('click', () => this.hideVarCard());
+    this.varCard.querySelector('#vc-apply')!.addEventListener('click', () => this.applyVarCard());
+  }
+
+  private openVarCard(obj: NumberObject, x: number, y: number): void {
+    if (!this.varCard || !obj.variable) return;
+    this.varCardId = obj.id;
+    const q = <T extends HTMLElement>(sel: string) => this.varCard!.querySelector<T>(sel)!;
+    q<HTMLInputElement>('#vc-name').value = obj.variable.name;
+    q<HTMLInputElement>('#vc-min').value = obj.variable.min.toDisplay();
+    q<HTMLInputElement>('#vc-max').value = obj.variable.max.toDisplay();
+    q<HTMLInputElement>('#vc-step').value = obj.variable.step.toDisplay();
+    q('#vc-status').hidden = true;
+    const host = this.varCard.parentElement!;
+    this.varCard.hidden = false;
+    this.varCard.style.left = `${Math.min(Math.max(x, 10), host.clientWidth - 280)}px`;
+    this.varCard.style.top = `${Math.min(Math.max(y + 12, 10), host.clientHeight - 190)}px`;
+  }
+
+  private hideVarCard(): void {
+    if (this.varCard) this.varCard.hidden = true;
+    this.varCardId = null;
+  }
+
+  private applyVarCard(): void {
+    if (!this.ctx || !this.varCard || !this.varCardId) return;
+    const q = <T extends HTMLElement>(sel: string) => this.varCard!.querySelector<T>(sel)!;
+    const status = q('#vc-status');
+    const name = q<HTMLInputElement>('#vc-name').value.trim() || 'a';
+    const min = Rational.parse(q<HTMLInputElement>('#vc-min').value);
+    const max = Rational.parse(q<HTMLInputElement>('#vc-max').value);
+    const step = Rational.parse(q<HTMLInputElement>('#vc-step').value);
+    if (!min || !max || !step) {
+      status.textContent = '✗ не понимаю границы или шаг';
+      status.hidden = false;
+      return;
+    }
+    if (min.compare(max) >= 0 || step.sign() <= 0) {
+      status.textContent = '✗ нужно: от < до, шаг > 0';
+      status.hidden = false;
+      return;
+    }
+    this.ctx.session.setVariableDef(this.varCardId, { name, min, max, step });
+    this.hideVarCard();
+  }
+
   private deleteSelection(): void {
     if (!this.ctx) return;
     for (const id of [...this.selection]) this.ctx.session.removeObject(id);
@@ -161,6 +291,31 @@ export class BoxesScene implements Scene {
       const target = this.boxAt(head.x, head.y) ?? this.boxAt(p.x, p.y);
       if (target) this.ctx.hit(target.id);
       return;
+    }
+
+    this.hideVarCard();
+
+    // Бейдж имени переменной — карточка настроек (имя, границы, шаг)
+    for (const obj of this.ctx.session.objects.values()) {
+      if (obj.kind !== 'number' || !obj.variable) continue;
+      const pos = obj.scenePos.get(this.id);
+      if (!pos) continue;
+      if (p.x >= pos.x && p.x <= pos.x + 30 && p.y >= pos.y && p.y <= pos.y + 22) {
+        this.openVarCard(obj, p.x, p.y);
+        return;
+      }
+    }
+
+    // Ползунок переменной — зона под коробкой (крутить можно и в запертых заданиях)
+    for (const obj of this.ctx.session.objects.values()) {
+      if (obj.kind !== 'number' || !obj.variable) continue;
+      const pos = obj.scenePos.get(this.id);
+      if (!pos) continue;
+      if (p.x >= pos.x - 6 && p.x <= pos.x + BOX_W + 6 && p.y >= pos.y + BOX_H + 2 && p.y <= pos.y + BOX_H + 18) {
+        this.sliderDrag = obj;
+        this.slideTo(obj, p.x);
+        return;
+      }
     }
 
     const box = this.boxAt(p.x, p.y);
@@ -198,6 +353,10 @@ export class BoxesScene implements Scene {
 
   onPointerMove(p: { x: number; y: number; button: number }): void {
     this.pointer = { x: p.x, y: p.y, inside: true };
+    if (this.sliderDrag) {
+      this.slideTo(this.sliderDrag, p.x);
+      return;
+    }
     if (this.groupDrag && this.ctx) {
       for (const [id, off] of this.groupDrag) {
         const obj = this.ctx.session.objects.get(id);
@@ -210,7 +369,12 @@ export class BoxesScene implements Scene {
     }
   }
 
-  onPointerUp(_p: { x: number; y: number; button: number }): void {
+  onPointerUp(p: { x: number; y: number; button: number }): void {
+    if (this.sliderDrag) {
+      this.slideTo(this.sliderDrag, p.x, true); // фиксация: журнал + субтитр
+      this.sliderDrag = null;
+      return;
+    }
     this.groupDrag = null;
     if (this.band && this.ctx) {
       const x0 = Math.min(this.band.x0, this.band.x1);
@@ -360,6 +524,34 @@ export class BoxesScene implements Scene {
     g.textBaseline = 'middle';
     g.fillText(text, pos.x + BOX_W / 2, pos.y + BOX_H / 2);
 
+    // Переменная: имя-бейдж и ползунок под коробкой
+    if (obj.variable) {
+      g.fillStyle = theme.accent;
+      g.font = 'bold 13px Inter, sans-serif';
+      g.textAlign = 'left';
+      g.textBaseline = 'top';
+      g.fillText(obj.variable.name, pos.x + 7, pos.y + 5);
+
+      const trackY = pos.y + BOX_H + 10;
+      g.strokeStyle = theme.border;
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(pos.x, trackY);
+      g.lineTo(pos.x + BOX_W, trackY);
+      g.stroke();
+
+      const minF = obj.variable.min.toNumber();
+      const maxF = obj.variable.max.toNumber();
+      const t = maxF > minF ? (obj.value.toNumber() - minF) / (maxF - minF) : 0;
+      g.fillStyle = theme.accent;
+      g.strokeStyle = theme.accentBorder;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(pos.x + Math.min(Math.max(t, 0), 1) * BOX_W, trackY, 6, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
+
     // Шлейф истории — у выделенных, длинный хвост прячем за «…»
     const past = obj.trail.slice(0, -1);
     if (showTrail && past.length) {
@@ -370,7 +562,7 @@ export class BoxesScene implements Scene {
       g.fillStyle = theme.textSecondary;
       g.globalAlpha = 0.7;
       const trailText = prefix + shown.map((v) => v.toDisplay()).join(' → ') + ' →';
-      g.fillText(trailText, pos.x + BOX_W / 2, pos.y + BOX_H + 16);
+      g.fillText(trailText, pos.x + BOX_W / 2, pos.y + BOX_H + (obj.variable ? 28 : 16));
       g.globalAlpha = 1;
     }
 
