@@ -1,0 +1,33 @@
+{
+  "id": "eq-02",
+  "task": "Две наклейки: y × 3 − 4 = 11. Сними обе и открой коробку. Идеал — два удара.",
+  "scene": "scales",
+  "goal": { "kind": "unknown-revealed" },
+  "maxSteps": 2,
+  "hints": [
+    "Снимается только верхняя наклейка. Сейчас сверху −4.",
+    "−4 отменяется чем? А после этого верхней станет ×3."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [
+      { "op": "mul", "n": "3/1", "hidden": false },
+      { "op": "div", "n": "3/1", "hidden": false },
+      { "op": "add", "n": "4/1", "hidden": false },
+      { "op": "sub", "n": "4/1", "hidden": false }
+    ],
+    "objects": [
+      {
+        "kind": "unknown",
+        "name": "y",
+        "secret": "5/1",
+        "rhs": "11/1",
+        "revealed": false,
+        "ops": [
+          { "op": "mul", "n": "3/1" },
+          { "op": "sub", "n": "4/1" }
+        ]
+      }
+    ]
+  }
+}

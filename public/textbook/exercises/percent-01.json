@@ -1,0 +1,16 @@
+{
+  "id": "percent-01",
+  "task": "Наушники стоят 2400 ₽, по карте скидка 15 %. Получи цену со скидкой одним ударом.",
+  "scene": "boxes",
+  "goal": { "kind": "any-object-value", "value": "2040" },
+  "maxSteps": 1,
+  "hints": [
+    "Скидка 15 % означает: платишь 85 % цены.",
+    "85 % — это молоток ×0,85."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mul", "n": "17/20", "hidden": false }],
+    "objects": [{ "kind": "number", "trail": ["2400/1"], "scenePos": {} }]
+  }
+}

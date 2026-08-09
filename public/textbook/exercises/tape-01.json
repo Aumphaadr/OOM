@@ -1,0 +1,19 @@
+{
+  "id": "tape-01",
+  "task": "Разрежь ленту на два куска: 1/6 и 5/6.",
+  "scene": "tapes",
+  "goal": { "kind": "tape-pieces", "pieces": ["1/6", "5/6"] },
+  "allowConstruct": true,
+  "hints": [
+    "Наведи мышь на ленту — проступят швы.",
+    "Нужен один-единственный рез: по первому шву слева."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [],
+    "objects": [
+      { "kind": "tape", "label": "Л1", "whole": "7/1", "mode": 6, "cuts": [],
+        "scenePos": { "tapes": { "x": 74, "y": 200 } } }
+    ]
+  }
+}

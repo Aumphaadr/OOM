@@ -1,0 +1,341 @@
+/* Палитра — перенос из idea/style-notes.md: зелёная лестница фонов + квартеты */
+:root {
+  --bg-primary: #070f09;
+  --bg-secondary: #101f15;
+  --bg-tertiary: #192f21;
+  --border: #28422c;
+  --text-primary: #ffffff;
+  --text-secondary: #cce0d6;
+
+  --accent: #28dc78;
+  --accent-hover: #1eaf5f;
+  --accent-border: #46f591;
+  --accent-glow: #5affaa;
+
+  --success: #1e783c;
+  --success-hover: #195f32;
+  --success-border: #3caa5a;
+  --success-glow: #50c86e;
+
+  --danger: #be4632;
+  --danger-border: #dc6450;
+  --danger-glow: #ff8264;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* Атрибут hidden обязан побеждать любые display из классов (.tool-forge и др.) */
+[hidden] { display: none !important; }
+
+html, body, #app { height: 100%; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+#app { display: flex; flex-direction: column; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 { font-size: 1.3rem; color: var(--accent); }
+.topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+#lesson-select { max-width: 170px; padding: 8px; }
+
+.history-wrap { position: relative; }
+.history-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 340px;
+  max-height: 55vh;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+
+.scene-tabs { display: flex; gap: 8px; }
+
+.scene-tab {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.scene-tab:hover { color: var(--text-primary); border-color: var(--border); }
+.scene-tab.active {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.layout { display: flex; flex: 1; min-height: 0; }
+
+/* Круглые кнопки сворачивания панелей — в нижних углах сцены */
+.edge-toggle {
+  position: absolute;
+  bottom: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  padding: 0;
+}
+#edge-sidebar { left: 14px; }
+#edge-reader { right: 14px; }
+.edge-toggle:hover { color: var(--accent); border-color: var(--accent-border); }
+
+/* Инлайн-иконки */
+.icon { display: inline-block; vertical-align: -2px; }
+.ic { display: inline-flex; margin-right: 7px; vertical-align: -2px; }
+.ic .icon { display: block; }
+button[data-icon] .icon { display: block; margin: 0 auto; }
+.topbar h1 { display: flex; align-items: center; gap: 2px; }
+
+.sidebar {
+  width: 300px;
+  min-width: 300px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.panel {
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.panel h3 { color: var(--accent); font-size: 0.95rem; margin-bottom: 10px; font-weight: 600; }
+
+.tool-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+
+.tool-chip {
+  position: relative;
+  padding: 8px 26px 8px 14px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tool-chip:hover { border-color: var(--accent-border); box-shadow: 0 0 10px var(--accent-glow); }
+.tool-chip.in-hand {
+  border: 1px dashed var(--accent-border);
+  color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: chip-wobble 1.3s ease-in-out infinite;
+}
+
+.chip-del {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+.chip-del:hover { color: var(--danger-border); opacity: 1; }
+
+@keyframes chip-wobble {
+  0%, 100% { transform: rotate(-1.2deg); }
+  50% { transform: rotate(1.2deg); }
+}
+
+/* Кузница: селект занимает свою строку, число и кнопка делят вторую */
+.tool-forge { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-forge select { flex: 1 1 100%; min-width: 0; }
+.tool-forge input { flex: 1 1 60px; min-width: 0; }
+.tool-forge .btn { flex: 0 0 auto; }
+
+.spawn-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.spawn-row input { flex: 1; min-width: 0; }
+
+input, select {
+  padding: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+}
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px rgba(90, 255, 170, 0.25);
+}
+
+.btn {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+/* hover темнее базы + появляется свечение — «вжатие с подсветкой» */
+.btn.primary { background: var(--success); border-color: var(--success-border); color: var(--text-primary); }
+.btn.primary:hover { background: var(--success-hover); box-shadow: 0 0 12px var(--success-glow); }
+.btn.accent { background: var(--accent); border-color: var(--accent-border); color: var(--bg-primary); }
+.btn.accent:hover { background: var(--accent-hover); box-shadow: 0 0 12px var(--accent-glow); }
+.btn.ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); width: 100%; margin-top: 6px; }
+.btn.ghost:hover { color: var(--text-primary); border-color: var(--accent-border); }
+.topbar .btn.ghost { width: auto; margin-top: 0; }
+
+.hint { color: var(--text-secondary); font-size: 0.8rem; margin-top: 10px; }
+
+.series-row { display: flex; gap: 6px; margin-bottom: 8px; }
+label.field { flex: 1; min-width: 0; font-size: 0.75rem; color: var(--text-secondary); }
+label.field input,
+label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block; }
+
+.subtitles {
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+}
+.subtitles:empty::after {
+  content: 'Пока пусто: история действий появится здесь';
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.subtitles li {
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.subtitles li:last-child { border-bottom: none; color: var(--text-primary); }
+.subtitles li .op { color: #ffd700; font-weight: 600; }
+
+/* Учебник: правая колонка (кнопка 📖 справа в шапке — и панель справа) */
+.reader {
+  width: 360px;
+  min-width: 360px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+.reader-body { padding: 18px 20px 40px; }
+.reader-body h2 { color: var(--accent); font-size: 1.2rem; margin: 10px 0 12px; }
+.reader-body h3 { color: var(--accent); font-size: 1rem; margin: 18px 0 8px; }
+.reader-body p { margin: 8px 0; color: var(--text-secondary); font-size: 0.95rem; }
+.reader-body b, .reader-body strong { color: var(--text-primary); }
+.reader-body code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent-glow);
+}
+.chapter-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 6px 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.chapter-link:hover { border-color: var(--accent-border); }
+.chapter-link.back { background: transparent; color: var(--text-secondary); border: none; padding-left: 0; }
+.ex-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--success);
+  border: 1px solid var(--success-border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ex-btn:hover { background: var(--success-hover); box-shadow: 0 0 12px var(--success-glow); }
+
+/* Панель задания поверх сцены */
+.task-panel {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 40px));
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  z-index: 20;
+}
+.task-panel.done { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+.task-head { display: flex; align-items: center; gap: 8px; }
+.task-head b { color: var(--accent); }
+.task-steps { color: var(--text-secondary); font-size: 0.85rem; }
+.task-actions { margin-left: auto; display: flex; gap: 4px; }
+.task-actions .btn { padding: 3px 8px; margin: 0; width: auto; }
+.task-panel p { margin-top: 6px; font-size: 0.95rem; }
+
+.stage-wrap { flex: 1; position: relative; min-width: 0; }
+
+/* Карточка настроек ленты — по клику мимо швов */
+.tape-popup {
+  position: absolute;
+  width: 260px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  z-index: 25;
+}
+.tape-popup .series-row { margin: 8px 0; }
+.tape-popup .tp-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; cursor: pointer; }
+.tape-popup .tp-check input { width: auto; }
+.tape-popup #tp-del:hover { color: var(--danger-border); border-color: var(--danger-border); }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }

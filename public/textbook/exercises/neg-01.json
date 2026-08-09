@@ -1,0 +1,19 @@
+{
+  "id": "neg-01",
+  "task": "Ударь молотком −5 по каждому числу так, чтобы все стали отрицательными.",
+  "scene": "boxes",
+  "goal": { "kind": "all-values", "check": "negative" },
+  "hints": [
+    "Возьми молоток −5 в руку кликом по нему в панели.",
+    "3 − 5 — это меньше нуля? А 1 − 5?"
+  ],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "sub", "n": "5/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["3/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["1/1"], "scenePos": {} }
+    ]
+  }
+}

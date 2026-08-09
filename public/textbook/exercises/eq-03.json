@@ -1,0 +1,28 @@
+{
+  "id": "eq-03",
+  "task": "⭐ x × 4 = 2. Открой коробку одним ударом — и не удивляйся тому, что внутри.",
+  "scene": "scales",
+  "goal": { "kind": "unknown-revealed" },
+  "maxSteps": 1,
+  "hints": [
+    "×4 отменяется инструментом ÷4.",
+    "Секрет не обязан быть целым: 2 ÷ 4 — это тоже число."
+  ],
+  "board": {
+    "v": 1,
+    "tools": [
+      { "op": "mul", "n": "4/1", "hidden": false },
+      { "op": "div", "n": "4/1", "hidden": false }
+    ],
+    "objects": [
+      {
+        "kind": "unknown",
+        "name": "x",
+        "secret": "1/2",
+        "rhs": "2/1",
+        "revealed": false,
+        "ops": [{ "op": "mul", "n": "4/1" }]
+      }
+    ]
+  }
+}
