@@ -51,6 +51,33 @@
             <input id="forge-n" type="number" value="5" step="any" />
             <button id="forge-btn" class="btn accent"><span class="ic" data-icon="hammer"></span>Создать</button>
           </div>
+          <button id="combo-toggle" class="btn ghost">Комбо-инструмент</button>
+          <div id="combo-forge" hidden>
+            <div class="series-row">
+              <select id="combo-op">
+                <optgroup label="арифметика">
+                  <option value="add">увеличить на</option>
+                  <option value="sub">уменьшить на</option>
+                  <option value="mul">умножить на</option>
+                  <option value="div">разделить на</option>
+                </optgroup>
+                <optgroup label="функции">
+                  <option value="sq">в квадрат (x²)</option>
+                  <option value="cube">в куб (x³)</option>
+                  <option value="sqrt">корень (√x)</option>
+                  <option value="cbrt">кубокорень (∛x)</option>
+                  <option value="abs">модуль (|x|)</option>
+                </optgroup>
+              </select>
+              <input id="combo-n" type="number" value="1" step="any" />
+              <button id="combo-add" class="btn ghost" title="Добавить шаг" style="margin-top:0">+</button>
+            </div>
+            <div id="combo-steps" class="tool-list"></div>
+            <div class="series-row">
+              <input id="combo-name" placeholder="имя (необязательно)" maxlength="10" />
+              <button id="combo-btn" class="btn accent">Собрать</button>
+            </div>
+          </div>
           <p class="hint" id="hand-hint">Кликни по инструменту — возьмёшь его в руку.
             Клик по объекту — удар. Правая кнопка — положить инструмент.</p>
         </section>

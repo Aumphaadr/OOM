@@ -1,6 +1,6 @@
 import { Session } from '../core/session';
 import { Rational } from '../core/rational';
-import { ToolOp } from '../core/model';
+import { PrimitiveOp } from '../core/model';
 
 /**
  * Урок — декларативные данные, не код: с чем доска начинается и какая сцена
@@ -14,7 +14,7 @@ export interface LessonSpec {
   scene?: string;
   objects?: string[]; // числа в записи, понятной Rational.parse
   tapes?: { len: string; mode: number | null }[];
-  tools?: { op: ToolOp; n?: string }[];
+  tools?: { op: PrimitiveOp; n?: string }[];
 }
 
 /** Загрузка урока: доска очищается и наполняется заново. */

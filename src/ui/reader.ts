@@ -82,7 +82,7 @@ export class Reader {
 
   private async loadManifest(): Promise<void> {
     try {
-      this.manifest = (await (await fetch('/textbook/manifest.json')).json()) as Manifest;
+      this.manifest = (await (await fetch('textbook/manifest.json')).json()) as Manifest;
       this.renderToc();
     } catch {
       this.body.innerHTML = '<p class="hint">Не удалось загрузить учебник.</p>';
@@ -103,7 +103,7 @@ export class Reader {
 
   private async openChapter(file: string): Promise<void> {
     try {
-      const html = await (await fetch(`/textbook/${file}`)).text();
+      const html = await (await fetch(`textbook/${file}`)).text();
       this.body.innerHTML = '';
       const back = document.createElement('button');
       back.className = 'chapter-link back';
@@ -128,7 +128,7 @@ export class Reader {
 
   private async loadExercise(id: string): Promise<void> {
     try {
-      const spec = (await (await fetch(`/textbook/exercises/${id}.json`)).json()) as ExerciseSpec;
+      const spec = (await (await fetch(`textbook/exercises/${id}.json`)).json()) as ExerciseSpec;
       await this.start(spec);
     } catch {
       this.deps.say(`Не удалось загрузить упражнение «${id}».`);

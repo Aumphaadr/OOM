@@ -1,6 +1,6 @@
 import { Rational } from './rational';
 import { Session } from './session';
-import { ToolOp } from './model';
+import { PrimitiveOp } from './model';
 
 /**
  * Сериализация доски (формат v1). Сохраняются объекты всех типов, инструменты
@@ -16,7 +16,10 @@ const rParse = (s: string): Rational => {
 
 export interface BoardJson {
   v: 1;
-  tools: { op: ToolOp; n: string; hidden: boolean }[];
+  tools: (
+    | { op: PrimitiveOp; n: string; hidden: boolean }
+    | { op: 'seq'; name: string; steps: { op: PrimitiveOp; n: string }[]; hidden: boolean }
+  )[];
   objects: (
     | { kind: 'number'; trail: string[]; scenePos: Record<string, { x: number; y: number }> }
     | { kind: 'tape'; label: string; whole: string; mode: number | null;
@@ -24,14 +27,21 @@ export interface BoardJson {
         cuts: (string | number)[]; strictGrid?: boolean; unitLen?: string | null;
         scenePos?: Record<string, { x: number; y: number }> }
     | { kind: 'unknown'; name: string; secret: string; rhs: string; revealed: boolean;
-        ops: { op: ToolOp; n: string }[] }
+        ops: { op: PrimitiveOp; n: string }[] }
   )[];
 }
 
 export function exportBoard(session: Session): string {
   const data: BoardJson = { v: 1, tools: [], objects: [] };
   for (const t of session.tools.values()) {
-    data.tools.push({ op: t.op, n: rStr(t.n), hidden: t.hidden });
+    if (t.steps) {
+      data.tools.push({
+        op: 'seq', name: t.label, hidden: t.hidden,
+        steps: t.steps.map((s) => ({ op: s.op, n: rStr(s.n) })),
+      });
+    } else {
+      data.tools.push({ op: t.op as PrimitiveOp, n: rStr(t.n), hidden: t.hidden });
+    }
   }
   for (const o of session.objects.values()) {
     if (o.kind === 'number') {
@@ -70,7 +80,9 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
   session.clearAll();
   try {
     for (const t of data.tools) {
-      const tool = session.addTool(t.op, rParse(t.n));
+      const tool = t.op === 'seq'
+        ? session.addComposite(t.steps.map((s) => ({ op: s.op, n: rParse(s.n) })), t.name)
+        : session.addTool(t.op, rParse(t.n));
       if (t.hidden) session.setToolHidden(tool.id, true);
     }
     for (const o of data.objects) {

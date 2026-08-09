@@ -86,7 +86,7 @@ export interface UnknownObject extends ObjectBase {
   readonly kind: 'unknown';
   readonly name: string; // буква: x, y, a…
   readonly secret: Rational;
-  ops: { op: ToolOp; n: Rational }[];
+  ops: { op: PrimitiveOp; n: Rational }[];
   rhs: Rational;
   revealed: boolean;
 }
@@ -115,7 +115,7 @@ export function exprFor(u: UnknownObject): string {
 }
 
 /** Является ли инструмент точным обратным к наклейке (для снятия верхней). */
-export function toolInvertsSticker(tool: Tool, sticker: { op: ToolOp; n: Rational }): boolean {
+export function toolInvertsSticker(tool: Tool, sticker: { op: PrimitiveOp; n: Rational }): boolean {
   const inv = makeTool(sticker.op, sticker.n).inverseSpec();
   if (!inv) return false;
   return inv.op === tool.op && (isUnaryOp(tool.op) || inv.n.equals(tool.n));
@@ -123,7 +123,9 @@ export function toolInvertsSticker(tool: Tool, sticker: { op: ToolOp; n: Rationa
 
 export type BinaryOp = 'add' | 'sub' | 'mul' | 'div';
 export type UnaryOp = 'sq' | 'cube' | 'sqrt' | 'cbrt' | 'abs';
-export type ToolOp = BinaryOp | UnaryOp;
+/** 'seq' — составной инструмент (комбо): последовательность примитивных шагов. */
+export type ToolOp = BinaryOp | UnaryOp | 'seq';
+export type PrimitiveOp = BinaryOp | UnaryOp;
 
 export const UNARY_OPS: readonly UnaryOp[] = ['sq', 'cube', 'sqrt', 'cbrt', 'abs'];
 export function isUnaryOp(op: ToolOp): op is UnaryOp {
@@ -139,15 +141,17 @@ export interface Tool {
   readonly id: string;
   readonly op: ToolOp;
   readonly n: Rational;
-  /** Подпись на бойке: «+5», «−3», «×(−1)», «÷2». */
+  /** Подпись на бойке: «+5», «×(−1)», у комбо — имя или «+4∘+55». */
   readonly label: string;
+  /** Шаги комбо (только у op === 'seq'). */
+  readonly steps?: readonly { op: PrimitiveOp; n: Rational }[];
   /** Режим «чёрный ящик»: подпись скрыта, субтитры показывают только «вход → выход». */
   hidden: boolean;
   /** null — применим ко всем; иначе текст причины отказа. */
   canApply(v: Rational): string | null;
   apply(v: Rational): Rational;
   /** Спецификация обратного инструмента, если он существует. */
-  inverseSpec(): { op: ToolOp; n: Rational } | null;
+  inverseSpec(): { op: PrimitiveOp; n: Rational } | null;
 }
 
 const OP_SYMBOL: Record<BinaryOp, string> = { add: '+', sub: '−', mul: '×', div: '÷' };
@@ -156,12 +160,14 @@ const UNARY_LABEL: Record<UnaryOp, string> = {
 };
 
 export function toolLabel(op: ToolOp, n: Rational): string {
+  if (op === 'seq') return '∘'; // подпись комбо задаёт makeCompositeTool
   if (isUnaryOp(op)) return UNARY_LABEL[op];
   const nStr = n.sign() < 0 ? `(${n.toDisplay()})` : n.toDisplay();
   return `${OP_SYMBOL[op]}${nStr}`;
 }
 
-export function makeTool(op: ToolOp, n: Rational, id?: string): Tool {
+export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
+  if ((op as string) === 'seq') throw new Error('makeTool не собирает комбо — используй makeCompositeTool');
   if (op === 'div' && n.isZero()) {
     // Сигнатура инструмента: делителя-ноль не существует в принципе.
     throw new Error('Деление на ноль не входит в курс школьной математики!');
@@ -208,6 +214,46 @@ export function makeTool(op: ToolOp, n: Rational, id?: string): Tool {
 }
 
 /**
+ * Комбо: последовательность примитивных шагов с общим именем.
+ * Применение — свёртка шагов; отказ любого шага — отказ всего комбо
+ * с указанием виновника.
+ */
+export function makeCompositeTool(
+  steps: { op: PrimitiveOp; n: Rational }[],
+  name?: string,
+  id?: string,
+): Tool {
+  if (!steps.length) throw new Error('комбо без шагов не бывает');
+  const prims = steps.map((s) => makeTool(s.op, s.n));
+  const label = (name ?? '').trim() || prims.map((p) => p.label).join('∘');
+  return {
+    id: id ?? `combo-${label}`,
+    op: 'seq',
+    n: Rational.of(0),
+    steps: steps.map((s) => ({ op: s.op, n: s.n })),
+    label,
+    hidden: false,
+    canApply(v: Rational): string | null {
+      let cur = v;
+      for (const p of prims) {
+        const refusal = p.canApply(cur);
+        if (refusal !== null) return `шаг «${p.label}»: ${refusal}`;
+        cur = p.apply(cur);
+      }
+      return null;
+    },
+    apply(v: Rational): Rational {
+      let cur = v;
+      for (const p of prims) cur = p.apply(cur);
+      return cur;
+    },
+    inverseSpec() {
+      return null; // обратный комбо строится целиком в Session.applyInverse
+    },
+  };
+}
+
+/**
  * Формула для субтитров: «13 + 10 = 23», «(−5)² = 25»; приближение честно
  * помечается: «√8 ≈ 2,828». У скрытого инструмента — протокол «13 → 23».
  */
@@ -219,6 +265,18 @@ export function subtitleFor(before: Rational, tool: Tool, after: Rational): stri
   const eq = approx ? '≈' : '=';
 
   if (tool.hidden) return `${before.toDisplay()} → ${approx ? '≈' : ''}${after.toDisplay()}`;
+
+  // Комбо: цепочка с промежуточными значениями — «+59!: 199 → 203 → 258»
+  if (tool.steps) {
+    const parts = [before.toDisplay()];
+    let v = before;
+    for (const s of tool.steps) {
+      v = makeTool(s.op, s.n).apply(v);
+      parts.push(v.toDisplay());
+    }
+    return `${tool.label}: ${parts.join(' → ')}`;
+  }
+
   const b = before.sign() < 0 ? `(${before.toDisplay()})` : before.toDisplay();
   const a = after.toDisplay();
   if (isUnaryOp(tool.op)) {
