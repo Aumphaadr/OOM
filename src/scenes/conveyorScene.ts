@@ -4,6 +4,7 @@ import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, ShakeAnim, SwingAnim, wobbleAngle } from '../render/motion';
 import { NumberObject, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
+import { clipFromObject, spawnFromClip } from '../core/clipboard';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
 import { icon } from '../ui/icons';
 
@@ -90,6 +91,38 @@ export class ConveyorScene implements Scene {
       this.deleteSelection();
     }
     if (e.key === 'Escape') this.selection.clear();
+
+    if ((e.ctrlKey || e.metaKey) && this.ctx) {
+      const k = e.code; // физический код: работает на любой раскладке
+      if (k === 'KeyC' || k === 'KeyX') {
+        const positions = [...this.selection]
+          .map((id) => ({ id, pos: this.posOf(id) }))
+          .filter((p): p is { id: string; pos: Pos } => !!p.pos && !this.rides.has(p.id));
+        if (!positions.length) return;
+        e.preventDefault();
+        const ax = Math.min(...positions.map((p) => p.pos.x));
+        const ay = Math.min(...positions.map((p) => p.pos.y));
+        this.ctx.clipboard.items = positions.flatMap(({ id, pos }) => {
+          const obj = this.ctx!.session.objects.get(id);
+          const item = obj && clipFromObject(obj, pos.x - ax, pos.y - ay);
+          return item ? [item] : [];
+        });
+        if (k === 'KeyX' && this.ctx.restrictions.construct) this.deleteSelection();
+      }
+      if (k === 'KeyV' && this.ctx.restrictions.construct && this.ctx.clipboard.items.length) {
+        e.preventDefault();
+        const ax = this.pointer.inside ? this.pointer.x : 120;
+        const ay = this.pointer.inside ? this.pointer.y : this.heightPx * 0.6;
+        this.selection.clear();
+        for (const item of this.ctx.clipboard.items) {
+          const obj = spawnFromClip(this.ctx.session, item);
+          if (obj.kind === 'number') {
+            obj.scenePos.set(this.id, { x: ax + item.dx, y: ay + item.dy });
+            this.selection.add(obj.id);
+          }
+        }
+      }
+    }
   };
 
   attach(ctx: SceneContext): void {
@@ -844,6 +877,14 @@ export class ConveyorScene implements Scene {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(text, cx, cy);
+
+    if (obj.variable) {
+      g.fillStyle = theme.accent;
+      g.font = 'bold 10px Inter, sans-serif';
+      g.textAlign = 'left';
+      g.textBaseline = 'top';
+      g.fillText(obj.variable.name, x + 5, y + 3);
+    }
 
     if (riding) {
       g.fillStyle = theme.metal;

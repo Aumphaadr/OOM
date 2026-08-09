@@ -3,8 +3,10 @@ import { theme } from '../render/theme';
 import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
 import { NumberObject, visibleLabel } from '../core/model';
+import { Rational } from '../core/rational';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
 import { icon } from '../ui/icons';
+import { clipFromObject, spawnFromClip } from '../core/clipboard';
 
 const CHIP_R = 18;
 const LINE_HIT = 14; // px — зона захвата прямой
@@ -33,7 +35,10 @@ interface NLine {
 }
 
 type Gesture =
-  | { type: 'chip'; obj: NumberObject; startX: number; startY: number; grabDy: number; moved: boolean }
+  | { type: 'chip'; obj: NumberObject; startX: number; startY: number; grabDy: number; moved: boolean;
+      /** value — переменная скользит вдоль прямой; transfer — перенос между прямыми */
+      axis: 'none' | 'value' | 'transfer' }
+  | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean }
   | { type: 'line'; line: NLine; startX: number; startY: number; startCenter: number; startYFrac: number; axis: 'none' | 'pan' | 'move' }
   | { type: 'pan'; startX: number; startCenter: number };
 
@@ -81,6 +86,40 @@ export class NumberLineScene implements Scene {
       this.deleteSelection();
     }
     if (e.key === 'Escape') this.selection.clear();
+
+    if ((e.ctrlKey || e.metaKey) && this.ctx) {
+      const k = e.code; // физический код: работает на любой раскладке
+      if (k === 'KeyC' || k === 'KeyX') {
+        // позиция фишки определяется значением — смещения в буфере не нужны
+        const items = [...this.selection].flatMap((id) => {
+          const obj = this.ctx!.session.objects.get(id);
+          const item = obj && clipFromObject(obj, 0, 0);
+          return item ? [item] : [];
+        });
+        if (!items.length) return;
+        e.preventDefault();
+        this.ctx.clipboard.items = items;
+        if (k === 'KeyX' && this.ctx.restrictions.construct) this.deleteSelection();
+      }
+      if (k === 'KeyV' && this.ctx.restrictions.construct && this.ctx.clipboard.items.length) {
+        e.preventDefault();
+        // «под курсором» на прямой = на ближайшую к курсору прямую
+        let best = this.lines[0]!;
+        let bestDist = Infinity;
+        for (const l of this.lines) {
+          const d = Math.abs((this.pointer.inside ? this.pointer.y : 0) - this.lineY(l));
+          if (d < bestDist) { best = l; bestDist = d; }
+        }
+        this.selection.clear();
+        for (const item of this.ctx.clipboard.items) {
+          const obj = spawnFromClip(this.ctx.session, item);
+          if (obj.kind === 'number') {
+            obj.scenePos.set(this.id, { x: best.id, y: 0 });
+            this.selection.add(obj.id);
+          }
+        }
+      }
+    }
   };
 
   attach(ctx: SceneContext): void {
@@ -323,7 +362,7 @@ export class NumberLineScene implements Scene {
         this.selection.clear();
         this.selection.add(chip.id);
       }
-      this.gesture = { type: 'chip', obj: chip, startX: p.x, startY: p.y, grabDy: lp ? p.y - lp.cy : 0, moved: false };
+      this.gesture = { type: 'chip', obj: chip, startX: p.x, startY: p.y, grabDy: lp ? p.y - lp.cy : 0, moved: false, axis: 'none' };
       return;
     }
 
@@ -336,8 +375,8 @@ export class NumberLineScene implements Scene {
       return;
     }
 
-    // Пустое место: мир не двигается, только сбрасывается выделение
-    this.selection.clear();
+    // Пустое место: рамка выделения (мир двигается только за прямые)
+    this.gesture = { type: 'band', x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: !!p.shift };
   }
 
   onPointerMove(p: { x: number; y: number; button: number }): void {
@@ -362,8 +401,23 @@ export class NumberLineScene implements Scene {
       }
       return;
     }
+    if (g.type === 'band') {
+      g.x1 = p.x;
+      g.y1 = p.y;
+      return;
+    }
     // chip
-    if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) > DRAG_THRESHOLD) g.moved = true;
+    if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) > DRAG_THRESHOLD) {
+      g.moved = true;
+      // Переменная: горизонталь — скольжение по значению, вертикаль — перенос.
+      // Обычная фишка значение руками не меняет — только перенос.
+      const horizontal = Math.abs(p.x - g.startX) >= Math.abs(p.y - g.startY);
+      g.axis = g.obj.variable && horizontal ? 'value' : 'transfer';
+    }
+    if (g.moved && g.axis === 'value' && this.ctx) {
+      const raw = this.valueAt(p.x);
+      this.ctx.session.setVariableValue(g.obj.id, Rational.of(Math.round(raw * 1e6), 1e6), false);
+    }
   }
 
   onPointerUp(p: { x: number; y: number; button: number }): void {
@@ -373,6 +427,26 @@ export class NumberLineScene implements Scene {
 
     if (g.type === 'line') {
       if (g.axis === 'none') this.openCard(g.line, p.x, p.y);
+      return;
+    }
+    if (g.type === 'band') {
+      const x0 = Math.min(g.x0, g.x1);
+      const x1 = Math.max(g.x0, g.x1);
+      const y0 = Math.min(g.y0, g.y1);
+      const y1 = Math.max(g.y0, g.y1);
+      if (!g.additive) this.selection.clear();
+      if (x1 - x0 > DRAG_THRESHOLD || y1 - y0 > DRAG_THRESHOLD) {
+        for (const [id, lp] of this.chipLayout) {
+          if (lp.x >= x0 - CHIP_R && lp.x <= x1 + CHIP_R && lp.cy >= y0 - CHIP_R && lp.cy <= y1 + CHIP_R) {
+            this.selection.add(id);
+          }
+        }
+      }
+      return;
+    }
+    if (g.type === 'chip' && g.moved && g.axis === 'value') {
+      // отпустили ползунок-переменную: одна запись в журнал
+      this.ctx.session.setVariableValue(g.obj.id, g.obj.value, true);
       return;
     }
     if (g.type === 'chip' && g.moved) {
@@ -430,6 +504,19 @@ export class NumberLineScene implements Scene {
         cursor = 'grab';
       }
       this.canvasEl.style.cursor = cursor;
+    }
+
+    // Рамка выделения
+    if (this.gesture?.type === 'band') {
+      const b = this.gesture;
+      g.save();
+      g.fillStyle = 'rgba(40, 220, 120, 0.08)';
+      g.strokeStyle = theme.accentBorder;
+      g.lineWidth = 1;
+      g.setLineDash([5, 5]);
+      g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+      g.strokeRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+      g.restore();
     }
 
     this.labels.update(dt);
@@ -553,7 +640,10 @@ export class NumberLineScene implements Scene {
       targeted = this.chipAt(head.x, head.y) ?? this.chipAt(this.pointer.x, this.pointer.y);
     }
 
-    const draggingChips = this.gesture?.type === 'chip' && this.gesture.moved ? this.selection : null;
+    const draggingChips =
+      this.gesture?.type === 'chip' && this.gesture.moved && this.gesture.axis === 'transfer'
+        ? this.selection
+        : null;
     const stacks = new Map<string, number>();
     this.chipLayout.clear();
 
@@ -635,6 +725,14 @@ export class NumberLineScene implements Scene {
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.fillText(text, x, cy);
+
+      // Имя переменной — прямая и есть её ползунок
+      if (obj.variable) {
+        g.fillStyle = theme.accent;
+        g.font = 'bold 11px Inter, sans-serif';
+        g.textAlign = 'left';
+        g.fillText(obj.variable.name, x + CHIP_R + 4, cy - CHIP_R + 4);
+      }
     }
 
     // Крестики над выделенными фишками (рука пуста, конструирование открыто)

@@ -21,13 +21,17 @@ export interface BoardJson {
     | { op: 'seq'; name: string; steps: { op: PrimitiveOp; n: string }[]; hidden: boolean }
   )[];
   objects: (
-    | { kind: 'number'; trail: string[]; scenePos: Record<string, { x: number; y: number }> }
+    | { kind: 'number'; trail: string[]; scenePos: Record<string, { x: number; y: number }>;
+        variable?: { name: string; min: string; max: string; step: string } }
     | { kind: 'tape'; label: string; whole: string; mode: number | null;
         /** новые сохранения — позиции-дроби ("1/6"); старые — индексы швов (числа) */
         cuts: (string | number)[]; strictGrid?: boolean; unitLen?: string | null;
         scenePos?: Record<string, { x: number; y: number }> }
     | { kind: 'unknown'; name: string; secret: string; rhs: string; revealed: boolean;
         ops: { op: PrimitiveOp; n: string }[] }
+    | { kind: 'rect'; label: string; w: string; h: string; cutsX: string[]; cutsY: string[];
+        showW?: boolean; showH?: boolean; showArea?: boolean;
+        scenePos?: Record<string, { x: number; y: number }> }
   )[];
 }
 
@@ -49,12 +53,27 @@ export function exportBoard(session: Session): string {
         kind: 'number',
         trail: o.trail.map(rStr),
         scenePos: Object.fromEntries(o.scenePos),
+        ...(o.variable && {
+          variable: {
+            name: o.variable.name,
+            min: rStr(o.variable.min),
+            max: rStr(o.variable.max),
+            step: rStr(o.variable.step),
+          },
+        }),
       });
     } else if (o.kind === 'tape') {
       data.objects.push({
         kind: 'tape', label: o.label, whole: rStr(o.whole),
         mode: o.mode, cuts: o.cuts.map(rStr), strictGrid: o.strictGrid,
         unitLen: o.unitLen ? rStr(o.unitLen) : null,
+        scenePos: Object.fromEntries(o.scenePos),
+      });
+    } else if (o.kind === 'rect') {
+      data.objects.push({
+        kind: 'rect', label: o.label, w: rStr(o.w), h: rStr(o.h),
+        cutsX: o.cutsX.map(rStr), cutsY: o.cutsY.map(rStr),
+        showW: o.showW, showH: o.showH, showArea: o.showArea,
         scenePos: Object.fromEntries(o.scenePos),
       });
     } else {
@@ -93,6 +112,14 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         for (const [sceneId, pos] of Object.entries(o.scenePos)) {
           obj.scenePos.set(sceneId, pos);
         }
+        if (o.variable) {
+          obj.variable = {
+            name: o.variable.name,
+            min: rParse(o.variable.min),
+            max: rParse(o.variable.max),
+            step: rParse(o.variable.step),
+          };
+        }
       } else if (o.kind === 'tape') {
         const tape = session.spawnTape(rParse(o.whole), o.mode, o.label);
         // совместимость: старые сохранения хранили индексы швов числами
@@ -103,6 +130,16 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         tape.unitLen = o.unitLen ? rParse(o.unitLen) : null;
         for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
           tape.scenePos.set(sceneId, pos);
+        }
+      } else if (o.kind === 'rect') {
+        const r = session.spawnRect(rParse(o.w), rParse(o.h));
+        r.cutsX = o.cutsX.map(rParse);
+        r.cutsY = o.cutsY.map(rParse);
+        r.showW = o.showW ?? true;
+        r.showH = o.showH ?? true;
+        r.showArea = o.showArea ?? true;
+        for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
+          r.scenePos.set(sceneId, pos);
         }
       } else {
         const u = session.spawnUnknown(o.name, rParse(o.secret));

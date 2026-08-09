@@ -7,6 +7,7 @@ import { NumberLineScene } from './scenes/numberLineScene';
 import { ConveyorScene } from './scenes/conveyorScene';
 import { TapesScene } from './scenes/tapesScene';
 import { ScalesScene } from './scenes/scalesScene';
+import { AreaScene } from './scenes/areaScene';
 import { loadLesson } from './lessons/lesson';
 import { PRESETS } from './lessons/presets';
 
@@ -16,7 +17,7 @@ const canvas = document.getElementById('stage') as HTMLCanvasElement;
 
 const session = new Session();
 const host = new CanvasHost(canvas);
-const scenes = [new BoxesScene(), new NumberLineScene(), new ConveyorScene(), new TapesScene(), new ScalesScene()];
+const scenes = [new BoxesScene(), new NumberLineScene(), new ConveyorScene(), new TapesScene(), new AreaScene(), new ScalesScene()];
 
 new Shell(session, host, scenes, PRESETS);
 

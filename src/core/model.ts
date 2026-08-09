@@ -18,6 +18,11 @@ export interface NumberObject extends ObjectBase {
   value: Rational;
   /** История значений (включая текущее) — шлейф для сцен и отладки. */
   readonly trail: Rational[];
+  /**
+   * Переменная: число с ручкой. Значение крутится ползунком в границах
+   * [min, max] с шагом step; молотки бьют по ней как по обычному числу.
+   */
+  variable?: { name: string; min: Rational; max: Rational; step: Rational };
 }
 
 /**
@@ -91,7 +96,40 @@ export interface UnknownObject extends ObjectBase {
   revealed: boolean;
 }
 
-export type MathObject = NumberObject | TapeObject | UnknownObject;
+/**
+ * Прямоугольник на клетчатом поле. Высота 0 — это ОТРЕЗОК: экструзия
+ * (потянуть кромку вверх) буквально превращает 1D в 2D.
+ * Резы — точки на сторонах в АБСОЛЮТНЫХ клетках (не долях): растянул
+ * фигуру — рез остался на «x = 3».
+ */
+export interface RectObject extends ObjectBase {
+  readonly kind: 'rect';
+  readonly label: string; // П1, П2…
+  w: Rational;
+  h: Rational;
+  cutsX: Rational[]; // вертикальные резы: 0 < x < w
+  cutsY: Rational[]; // горизонтальные резы: 0 < y < h
+  /** Что подписывать на фигуре (препод прячет, чтобы ученик посчитал сам). */
+  showW: boolean;
+  showH: boolean;
+  showArea: boolean;
+}
+
+/** Площади кусков: строки снизу вверх, в строке слева направо. */
+export function rectPieceAreas(r: RectObject): Rational[] {
+  const xs = [Rational.of(0), ...r.cutsX, r.w];
+  const ys = [Rational.of(0), ...r.cutsY, r.h];
+  const areas: Rational[] = [];
+  for (let row = 0; row < ys.length - 1; row++) {
+    const rh = ys[row + 1]!.sub(ys[row]!);
+    for (let col = 0; col < xs.length - 1; col++) {
+      areas.push(xs[col + 1]!.sub(xs[col]!).mul(rh));
+    }
+  }
+  return areas;
+}
+
+export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject;
 
 /** Текст выражения левой чаши из стопки наклеек: x → (x × 2) + 3. */
 export function exprFor(u: UnknownObject): string {
