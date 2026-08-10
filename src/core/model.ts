@@ -1,4 +1,4 @@
-import { Rational, sqrtExact, cbrtExact, sqrtApprox, cbrtApprox } from './rational';
+import { Rational, sqrtExact, cbrtExact, sqrtApprox, cbrtApprox, powInt, rootExact, rootApprox } from './rational';
 
 /**
  * Математические объекты — размеченное объединение типов (kind).
@@ -144,6 +144,7 @@ export function exprFor(u: UnknownObject): string {
       case 'div': e = `${wrap} ÷ ${n}`; break;
       case 'sq': e = `${wrap}²`; break;
       case 'cube': e = `${wrap}³`; break;
+      case 'pow': e = `${wrap}${powSuffix(s.n)}`; break;
       case 'sqrt': e = `√${wrap}`; break;
       case 'cbrt': e = `∛${wrap}`; break;
       case 'abs': e = `|${e}|`; break;
@@ -159,7 +160,7 @@ export function toolInvertsSticker(tool: Tool, sticker: { op: PrimitiveOp; n: Ra
   return inv.op === tool.op && (isUnaryOp(tool.op) || inv.n.equals(tool.n));
 }
 
-export type BinaryOp = 'add' | 'sub' | 'mul' | 'div';
+export type BinaryOp = 'add' | 'sub' | 'mul' | 'div' | 'pow';
 export type UnaryOp = 'sq' | 'cube' | 'sqrt' | 'cbrt' | 'abs';
 /** 'seq' — составной инструмент (комбо): последовательность примитивных шагов. */
 export type ToolOp = BinaryOp | UnaryOp | 'seq';
@@ -192,14 +193,27 @@ export interface Tool {
   inverseSpec(): { op: PrimitiveOp; n: Rational } | null;
 }
 
-const OP_SYMBOL: Record<BinaryOp, string> = { add: '+', sub: '−', mul: '×', div: '÷' };
+const OP_SYMBOL: Record<BinaryOp, string> = { add: '+', sub: '−', mul: '×', div: '÷', pow: '^' };
 const UNARY_LABEL: Record<UnaryOp, string> = {
   sq: 'x²', cube: 'x³', sqrt: '√x', cbrt: '∛x', abs: '|x|',
 };
 
+const SUP_DIGIT: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻',
+};
+
+/** Хвост степени: целый показатель — надстрочный («⁵», «⁻³»), дробный — «^0,25», «^(1/3)». */
+export function powSuffix(n: Rational): string {
+  if (n.isInteger()) return [...n.num.toString()].map((c) => SUP_DIGIT[c] ?? c).join('');
+  const d = n.toDisplay();
+  return d.includes('/') || n.sign() < 0 ? `^(${d})` : `^${d}`;
+}
+
 export function toolLabel(op: ToolOp, n: Rational): string {
   if (op === 'seq') return '∘'; // подпись комбо задаёт makeCompositeTool
   if (isUnaryOp(op)) return UNARY_LABEL[op];
+  if (op === 'pow') return `x${powSuffix(n)}`;
   const nStr = n.sign() < 0 ? `(${n.toDisplay()})` : n.toDisplay();
   return `${OP_SYMBOL[op]}${nStr}`;
 }
@@ -210,6 +224,9 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
     // Сигнатура инструмента: делителя-ноль не существует в принципе.
     throw new Error('Деление на ноль не входит в курс школьной математики!');
   }
+  if (op === 'pow' && ((n.num < -100n || n.num > 100n) || n.den > 100n)) {
+    throw new Error('Такой показатель степени не унесёт ни один молоток (до ±100, корень до 100-й степени).');
+  }
   return {
     id: id ?? `tool-${op}-${n.num}_${n.den}`,
     op,
@@ -218,6 +235,13 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
     hidden: false,
     canApply(v: Rational): string | null {
       if (op === 'sqrt' && v.sign() < 0) return 'корень из отрицательного числа не существует';
+      if (op === 'pow') {
+        if (v.isZero() && n.sign() < 0) return 'ноль в отрицательной степени — это деление на ноль';
+        if (v.isZero() && n.isZero()) return '0⁰ не определён';
+        if (v.sign() < 0 && n.den % 2n === 0n) {
+          return 'дробная степень с чётным знаменателем — корень чётной степени, из отрицательного числа он не существует';
+        }
+      }
       return null;
     },
     apply(v: Rational): Rational {
@@ -233,6 +257,15 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
         case 'sqrt': return sqrtExact(v) ?? sqrtApprox(v);
         case 'cbrt': return cbrtExact(v) ?? cbrtApprox(v);
         case 'abs': return v.sign() < 0 ? v.neg() : v;
+        case 'pow': {
+          // x^(a/b): отрицательный показатель — переворот дроби ДО корня,
+          // чтобы приближение (если случится) было последним шагом
+          const base = n.sign() < 0 ? powInt(v, -1n) : v;
+          const e = n.num < 0n ? -n.num : n.num;
+          const powered = powInt(base, e);
+          if (n.den === 1n) return powered;
+          return rootExact(powered, n.den) ?? rootApprox(powered, n.den);
+        }
       }
     },
     inverseSpec() {
@@ -246,6 +279,14 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
         case 'cube': return { op: 'cbrt', n }; // нечётная степень обратима
         case 'cbrt': return { op: 'cube', n };
         case 'sqrt': return { op: 'sq', n };   // на области √ (x ≥ 0) квадрат — честный обратный
+        case 'pow': {
+          if (n.isZero()) return null; // x⁰ склеивает всё в единицу — как ×0
+          const numAbs = n.num < 0n ? -n.num : n.num;
+          // чётный числитель при нечётном знаменателе склеивает x и −x — как x²;
+          // при чётном знаменателе область x ≥ 0, там обратный честен — как у √
+          if (numAbs % 2n === 0n && n.den % 2n === 1n) return null;
+          return { op: 'pow', n: powInt(n, -1n) };
+        }
       }
     },
   };
@@ -299,7 +340,12 @@ export function subtitleFor(before: Rational, tool: Tool, after: Rational): stri
   // приближение распознаётся проверкой: обратная степень не возвращает исходное
   const approx =
     (tool.op === 'sqrt' && !after.mul(after).equals(before)) ||
-    (tool.op === 'cbrt' && !after.mul(after).mul(after).equals(before));
+    (tool.op === 'cbrt' && !after.mul(after).mul(after).equals(before)) ||
+    (tool.op === 'pow' && tool.n.den > 1n &&
+      !powInt(after, tool.n.den).equals(powInt(
+        tool.n.sign() < 0 ? powInt(before, -1n) : before,
+        tool.n.num < 0n ? -tool.n.num : tool.n.num,
+      )));
   const eq = approx ? '≈' : '=';
 
   if (tool.hidden) return `${before.toDisplay()} → ${approx ? '≈' : ''}${after.toDisplay()}`;
@@ -326,6 +372,7 @@ export function subtitleFor(before: Rational, tool: Tool, after: Rational): stri
       case 'abs': return `|${before.toDisplay()}| = ${a}`;
     }
   }
+  if (tool.op === 'pow') return `${b}${powSuffix(tool.n)} ${eq} ${a}`;
   const n = tool.n.sign() < 0 ? `(${tool.n.toDisplay()})` : tool.n.toDisplay();
   return `${b} ${OP_SYMBOL[tool.op as BinaryOp]} ${n} = ${a}`;
 }

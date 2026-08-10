@@ -7,11 +7,12 @@ import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
 import { LessonSpec, loadLesson } from '../lessons/lesson';
 import { Reader } from './reader';
 import { icon } from './icons';
+import { diagnosisSummary } from './diagnoses';
 
 const BOARD_STORAGE_KEY = 'oom-board-v1';
 
 const OP_FROM_SELECT: Record<string, PrimitiveOp> = {
-  add: 'add', sub: 'sub', mul: 'mul', div: 'div',
+  add: 'add', sub: 'sub', mul: 'mul', div: 'div', pow: 'pow',
   sq: 'sq', cube: 'cube', sqrt: 'sqrt', cbrt: 'cbrt', abs: 'abs',
 };
 
@@ -304,7 +305,16 @@ export class Shell {
     historyBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       dropdown.hidden = !dropdown.hidden;
-      if (!dropdown.hidden) dropdown.scrollTop = dropdown.scrollHeight;
+      if (!dropdown.hidden) {
+        // Карта диагнозов (методика 999): ложные инструменты, пойманные чекпоинтами
+        const map = document.getElementById('diagnosis-map')!;
+        const lines = diagnosisSummary();
+        map.hidden = !lines.length;
+        map.innerHTML = lines.length
+          ? '<b>Карта диагнозов</b>' + lines.map((l) => `<div>• ${l}</div>`).join('')
+          : '';
+        dropdown.scrollTop = dropdown.scrollHeight;
+      }
     });
     document.addEventListener('click', (ev) => {
       if (!dropdown.hidden && !dropdown.contains(ev.target as Node)) dropdown.hidden = true;

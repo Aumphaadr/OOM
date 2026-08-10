@@ -9,6 +9,7 @@ import { tapePieceLabels, rectPieceAreas } from './model';
 export type GoalSpec =
   | { kind: 'unknown-revealed' }                                  // уравнение решено
   | { kind: 'any-object-value'; value: string }                   // получить число N
+  | { kind: 'values-include'; values: string[] }                  // все перечисленные значения присутствуют
   | { kind: 'all-values'; check: 'positive' | 'negative' | 'zero' }
   | { kind: 'tape-pieces'; pieces: string[] }                     // лента порезана как надо
   | { kind: 'rect-pieces'; areas: string[] }                      // площади кусков (снизу-слева направо)
@@ -24,6 +25,14 @@ export function checkGoal(session: Session, goal: GoalSpec): boolean {
       const target = Rational.parse(goal.value);
       if (!target) return false;
       return objects.some((o) => o.kind === 'number' && o.value.equals(target));
+    }
+
+    case 'values-include': {
+      // «Возведи каждую фишку»: цель — среди чисел есть 49, 64, 81 и 169.
+      const targets = goal.values.map((v) => Rational.parse(v));
+      if (targets.some((t) => !t)) return false;
+      const numbers = objects.filter((o) => o.kind === 'number');
+      return targets.every((t) => numbers.some((o) => o.value.equals(t!)));
     }
 
     case 'all-values': {

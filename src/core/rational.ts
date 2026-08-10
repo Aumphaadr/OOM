@@ -161,4 +161,53 @@ export function cbrtApprox(v: Rational, digits = 3): Rational {
   return Rational.of(neg ? -s : s, scale);
 }
 
+/** Целочисленный корень k-й степени (floor) для bigint ≥ 0, бинарный поиск. */
+function irootK(n: bigint, k: bigint): bigint {
+  if (n < 0n) throw new Error('irootK из отрицательного');
+  if (n < 2n) return n;
+  let lo = 1n;
+  let hi = 1n << BigInt(Math.ceil(n.toString(2).length / Number(k)) + 1);
+  while (lo < hi) {
+    const mid = (lo + hi + 1n) / 2n;
+    if (mid ** k <= n) lo = mid;
+    else hi = mid - 1n;
+  }
+  return lo;
+}
+
+/** Целая степень v^e; отрицательная e переворачивает дробь (v ≠ 0). */
+export function powInt(v: Rational, e: bigint): Rational {
+  if (e === 0n) return Rational.of(1n);
+  const k = e < 0n ? -e : e;
+  const num = v.num ** k;
+  const den = v.den ** k;
+  if (e < 0n) {
+    if (num === 0n) throw new Error('Деление на ноль');
+    return Rational.of(den, num); // of() нормализует знак
+  }
+  return Rational.of(num, den);
+}
+
+/** Точный корень k-й степени (k ≥ 2): Rational, если рационален, иначе null.
+ *  Отрицательные допустимы только при нечётном k. */
+export function rootExact(v: Rational, k: bigint): Rational | null {
+  const neg = v.num < 0n;
+  if (neg && k % 2n === 0n) return null;
+  const an = neg ? -v.num : v.num;
+  const rn = irootK(an, k);
+  const rd = irootK(v.den, k);
+  if (rn ** k === an && rd ** k === v.den) return Rational.of(neg ? -rn : rn, rd);
+  return null;
+}
+
+/** Приближённый корень k-й степени до `digits` знаков, округление к ближайшему. */
+export function rootApprox(v: Rational, k: bigint, digits = 3): Rational {
+  const neg = v.num < 0n;
+  const scale = 10n ** BigInt(digits);
+  const target = ((neg ? -v.num : v.num) * scale ** k) / v.den;
+  let s = irootK(target, k);
+  if ((s + 1n) ** k - target < target - s ** k) s += 1n;
+  return Rational.of(neg ? -s : s, scale);
+}
+
 export const R = Rational.of;

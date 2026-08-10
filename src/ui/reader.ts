@@ -2,6 +2,33 @@ import { Session } from '../core/session';
 import { BoardJson, importBoardData } from '../core/serialize';
 import { GoalSpec, checkGoal } from '../core/goal';
 import { icon } from './icons';
+import { recordDiagnosis } from './diagnoses';
+
+/** Вариант вывода в чекпоинте (методика 999, docs/design-checkpoints.md). */
+export interface CheckpointOption {
+  text: string;              // «возвести в квадрат — умножить число на само себя»
+  correct?: boolean;         // ровно один вариант — true
+  /** Диагноз для карты пробелов: каким ложным инструментом бьёт ученик. */
+  diagnosis?: string;        // «подменяет x² на ×2»
+  /** Контрпример: доска, на которой ложный вывод даёт расхождение. */
+  counter?: {
+    prompt: string;          // «Если x² — это ×2, то 7² = 14. Проверь ударом»
+    board: BoardJson;
+    goal?: GoalSpec;         // без цели — засчитывается первый же ход
+  };
+}
+
+export interface CheckpointSpec {
+  question: string;          // «Что ты заметил?»
+  options: CheckpointOption[];
+}
+
+/** Обстрел границ: опасные объекты (0, 1, отрицательные, дроби 0..1). */
+export interface BoundarySpec {
+  prompt: string;
+  board: BoardJson;
+  goal: GoalSpec;
+}
 
 /** Упражнение: заготовленная доска + задание + цель. */
 export interface ExerciseSpec {
@@ -18,7 +45,14 @@ export interface ExerciseSpec {
    * иначе «Точно в ноль» решается созданием молотка «+3» или числа 0.
    */
   allowConstruct?: boolean;
+  /** Чекпоинт-вывод после цели: без него поведение прежнее (сразу «готово»). */
+  checkpoint?: CheckpointSpec;
+  /** Обстрел границ после верного вывода. */
+  boundary?: BoundarySpec;
 }
+
+/** Фазы цикла 999: эксперимент → чекпоинт → (контрпример) → обстрел → готово. */
+type Phase = 'experiment' | 'checkpoint' | 'counter' | 'boundary' | 'done';
 
 interface Manifest {
   chapters: { id: string; title: string; file: string }[];
@@ -39,7 +73,13 @@ interface ReaderDeps {
 export class Reader {
   private manifest: Manifest | null = null;
   private active: ExerciseSpec | null = null;
-  private done = false;
+  private phase: Phase = 'experiment';
+  /** Индексы дистракторов, проверенных контрпримером и погашенных. */
+  private readonly broken = new Set<number>();
+  /** Какой вариант сейчас проверяется контрпримером. */
+  private counterOf: number | null = null;
+  /** Идёт importBoardData: события журнала не считаем и цели не проверяем. */
+  private loading = false;
   private steps = 0;
   private hintIndex = 0;
 
@@ -59,16 +99,78 @@ export class Reader {
     document.getElementById('task-close')!.addEventListener('click', () => this.closeExercise());
 
     deps.session.on((e) => {
-      if (!this.active || this.done) return;
-      if (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'tape-changed') {
-        this.steps++;
-      }
-      if (checkGoal(deps.session, this.active.goal)) {
-        this.done = true;
-        deps.say(`🎉 Задание «${this.active.id}» выполнено за ${this.steps} ход(а)!`);
+      if (!this.active || this.loading || this.phase === 'done' || this.phase === 'checkpoint') return;
+      const counted =
+        e.kind === 'tool-applied' || e.kind === 'scales-step' ||
+        e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set';
+
+      if (this.phase === 'experiment') {
+        if (counted) this.steps++;
+        if (checkGoal(deps.session, this.active.goal)) {
+          if (this.active.checkpoint) {
+            this.phase = 'checkpoint';
+            deps.say('🎯 Сделано. Теперь главный вопрос — что ты заметил?');
+          } else {
+            this.phase = 'done';
+            deps.say(`🎉 Задание «${this.active.id}» выполнено за ${this.steps} ход(а)!`);
+          }
+        }
+      } else if (this.phase === 'counter' && counted && this.counterOf !== null) {
+        // Контрпример считается предъявленным, когда его цель достигнута
+        // (или после первого же хода, если цели нет): вывод сломан — гасим вариант.
+        const goal = this.active.checkpoint!.options[this.counterOf]!.counter?.goal;
+        if (!goal || checkGoal(deps.session, goal)) {
+          this.broken.add(this.counterOf);
+          this.counterOf = null;
+          this.phase = 'checkpoint';
+          deps.say('💥 Молоток показал другое — вывод не подтвердился. Вернёмся к вопросу.');
+        }
+      } else if (this.phase === 'boundary') {
+        if (checkGoal(deps.session, this.active.boundary!.goal)) {
+          this.phase = 'done';
+          deps.say(`🎉 Вывод пережил обстрел границ — задание «${this.active.id}» выполнено!`);
+        }
       }
       this.renderPanel();
     });
+  }
+
+  /** Загрузка доски посреди упражнения (контрпример, обстрел) без самосчёта цели. */
+  private loadBoard(board: BoardJson): void {
+    this.loading = true;
+    importBoardData(this.deps.session, board);
+    this.loading = false;
+  }
+
+  /** Клик по варианту вывода в чекпоинте. */
+  private choose(i: number): void {
+    const spec = this.active;
+    const cp = spec?.checkpoint;
+    if (!spec || !cp || this.phase !== 'checkpoint' || this.broken.has(i)) return;
+    const opt = cp.options[i]!;
+
+    if (opt.correct) {
+      if (spec.boundary) {
+        this.phase = 'boundary';
+        this.loadBoard(spec.boundary.board);
+        this.deps.say('✅ Похоже на правду. Но выдержит ли вывод обстрел границ?');
+      } else {
+        this.phase = 'done';
+        this.deps.say(`🎉 Вывод верный — задание «${spec.id}» выполнено!`);
+      }
+    } else {
+      // Дистрактор не карается, а проверяется: диагноз — в копилку, вывод — на доску
+      if (opt.diagnosis) recordDiagnosis(spec.id, opt.diagnosis);
+      if (opt.counter) {
+        this.counterOf = i;
+        this.phase = 'counter';
+        this.loadBoard(opt.counter.board);
+        this.deps.say('🧪 Может показаться, что так. Проверим ударом.');
+      } else {
+        this.broken.add(i);
+      }
+    }
+    this.renderPanel();
   }
 
   private toggle(): void {
@@ -141,7 +243,9 @@ export class Reader {
     this.active = null;
     importBoardData(this.deps.session, spec.board);
     this.active = spec;
-    this.done = false;
+    this.phase = 'experiment';
+    this.broken.clear();
+    this.counterOf = null;
     this.steps = 0;
     this.hintIndex = 0;
     this.deps.setConstruct(spec.allowConstruct ?? false);
@@ -178,13 +282,43 @@ export class Reader {
 
   private renderPanel(): void {
     if (!this.active) return;
+    const done = this.phase === 'done';
     const status = document.getElementById('task-status')!;
-    status.innerHTML = icon(this.done ? 'check' : 'target', 17);
-    status.style.color = this.done ? 'var(--accent)' : 'var(--text-secondary)';
-    document.getElementById('task-text')!.textContent = this.active.task;
+    status.innerHTML = icon(done ? 'check' : 'target', 17);
+    status.style.color = done ? 'var(--accent)' : 'var(--text-secondary)';
+
+    const text = document.getElementById('task-text')!;
+    const cp = this.active.checkpoint;
+    switch (this.phase) {
+      case 'checkpoint': text.textContent = cp!.question; break;
+      case 'counter': text.textContent = cp!.options[this.counterOf!]!.counter!.prompt; break;
+      case 'boundary': text.textContent = this.active.boundary!.prompt; break;
+      default: text.textContent = this.active.task;
+    }
+
+    const options = document.getElementById('task-options')!;
+    options.hidden = this.phase !== 'checkpoint';
+    if (this.phase === 'checkpoint' && cp) {
+      options.innerHTML = '';
+      cp.options.forEach((opt, i) => {
+        const b = document.createElement('button');
+        const isBroken = this.broken.has(i);
+        b.className = 'opt' + (isBroken ? ' opt-broken' : '');
+        b.textContent = isBroken ? `✗ ${opt.text}` : opt.text;
+        b.disabled = isBroken;
+        if (isBroken) b.title = 'Проверено ударом: не подтвердилось';
+        else b.addEventListener('click', () => this.choose(i));
+        options.appendChild(b);
+      });
+    }
+
     const stepsEl = document.getElementById('task-steps')!;
-    const limit = this.active.maxSteps ? ` из ${this.active.maxSteps}` : '';
-    stepsEl.textContent = this.steps > 0 || this.active.maxSteps ? `ходы: ${this.steps}${limit}` : '';
-    this.panel.classList.toggle('done', this.done);
+    if (this.phase === 'experiment' || done) {
+      const limit = this.active.maxSteps ? ` из ${this.active.maxSteps}` : '';
+      stepsEl.textContent = this.steps > 0 || this.active.maxSteps ? `ходы: ${this.steps}${limit}` : '';
+    } else {
+      stepsEl.textContent = '';
+    }
+    this.panel.classList.toggle('done', done);
   }
 }
