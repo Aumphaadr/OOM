@@ -1,0 +1,15 @@
+{
+  "id": "abs-02",
+  "task": "Фишки −4 и 4 на прямой. Ударь |x| по обеим — они встанут в одну точку. Двое слились в одного: вот почему у |x| нет обратного молотка.",
+  "scene": "numberline",
+  "goal": { "kind": "all-values", "check": "positive" },
+  "hints": ["Расстояние до нуля у −4 и 4 одинаковое — по 4 шага."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "abs", "n": "0/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["-4/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["4/1"], "scenePos": {} }
+    ]
+  }
+}

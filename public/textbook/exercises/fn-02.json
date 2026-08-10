@@ -2,14 +2,131 @@
   "id": "fn-02",
   "task": "Число 28 — это ВЫХОД машины ×4. Узнай, что было на входе.",
   "scene": "conveyor",
-  "goal": { "kind": "any-object-value", "value": "7" },
+  "goal": {
+    "kind": "any-object-value",
+    "value": "7"
+  },
   "hints": [
     "Вставь ×4 в участок и включи реверс ленты: задний ход применяет обратный инструмент.",
     "Прогони 28 справа налево: машина сама разделит на 4."
   ],
   "board": {
     "v": 1,
-    "tools": [{ "op": "mul", "n": "4/1", "hidden": false }],
-    "objects": [{ "kind": "number", "trail": ["28/1"], "scenePos": {} }]
+    "tools": [
+      {
+        "op": "mul",
+        "n": "4/1",
+        "hidden": false
+      }
+    ],
+    "objects": [
+      {
+        "kind": "number",
+        "trail": [
+          "28/1"
+        ],
+        "scenePos": {}
+      }
+    ]
+  },
+  "checkpoint": {
+    "question": "Выход машины ×4 равен 28, вход был 7. Как ищут вход по выходу?",
+    "options": [
+      {
+        "text": "Ударить по выходу той же машиной ×4",
+        "diagnosis": "идёт назад прямым инструментом (не обращает операцию)",
+        "counter": {
+          "prompt": "Проверь: ударь ×4 по 28. Ты приблизился ко входу или уехал дальше?",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "mul",
+                "n": "4/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "28/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "112"
+          }
+        }
+      },
+      {
+        "text": "Обратный к ×4 — это ÷4: вход = 28 ÷ 4 = 7",
+        "correct": true
+      },
+      {
+        "text": "Вход = 28 − 4 = 24: умножение отматывают вычитанием",
+        "diagnosis": "обращает ×N вычитанием N",
+        "counter": {
+          "prompt": "Проверь: если вход 24, машина ×4 выдаст 28? Прогони 24 через ×4.",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "mul",
+                "n": "4/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "24/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "96"
+          }
+        }
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: у той же машины ×4 выход 2. Найди вход — и не пугайся, что он окажется меньше единицы.",
+    "board": {
+      "v": 1,
+      "tools": [
+        {
+          "op": "mul",
+          "n": "4/1",
+          "hidden": false
+        },
+        {
+          "op": "div",
+          "n": "4/1",
+          "hidden": false
+        }
+      ],
+      "objects": [
+        {
+          "kind": "number",
+          "trail": [
+            "2/1"
+          ],
+          "scenePos": {}
+        }
+      ]
+    },
+    "goal": {
+      "kind": "any-object-value",
+      "value": "1/2"
+    }
   }
 }

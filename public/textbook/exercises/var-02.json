@@ -1,0 +1,14 @@
+{
+  "id": "var-02",
+  "task": "Поставь a = 4 и ударь молотком ×2. Молотку всё равно, кого бить — обычное число или переменную.",
+  "scene": "boxes",
+  "goal": { "kind": "any-object-value", "value": "8" },
+  "hints": ["Сначала ползунком до 4, потом удар ×2."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mul", "n": "2/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["0/1"], "variable": { "name": "a", "min": "-10/1", "max": "10/1", "step": "1/1" }, "scenePos": {} }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "pz-02",
+  "task": "x⁻¹ — молоток-переворот: ударь по 2, по 4 и по 1/2. А потом ударь по любой ещё раз — она вернулась! Какой инструмент обратен x⁻¹?",
+  "scene": "boxes",
+  "goal": { "kind": "values-include", "values": ["1/2", "1/4", "2"] },
+  "hints": ["2 и 1/2 просто меняются местами: x⁻¹ обратен сам себе."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "pow", "n": "-1/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["4/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["1/2"], "scenePos": {} }
+    ]
+  }
+}

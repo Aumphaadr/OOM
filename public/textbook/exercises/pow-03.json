@@ -2,7 +2,10 @@
   "id": "pow-03",
   "task": "Извлеки корень из обоих чисел и загляни в историю: чем отличаются записи результатов?",
   "scene": "boxes",
-  "goal": { "kind": "any-object-value", "value": "7" },
+  "goal": {
+    "kind": "any-object-value",
+    "value": "7"
+  },
   "maxSteps": 2,
   "hints": [
     "√49 = 7 — точно: 7 × 7 = 49.",
@@ -10,10 +13,143 @@
   ],
   "board": {
     "v": 1,
-    "tools": [{ "op": "sqrt", "n": "0/1", "hidden": false }],
+    "tools": [
+      {
+        "op": "sqrt",
+        "n": "0/1",
+        "hidden": false
+      }
+    ],
     "objects": [
-      { "kind": "number", "trail": ["49/1"], "scenePos": {} },
-      { "kind": "number", "trail": ["8/1"], "scenePos": {} }
+      {
+        "kind": "number",
+        "trail": [
+          "49/1"
+        ],
+        "scenePos": {}
+      },
+      {
+        "kind": "number",
+        "trail": [
+          "8/1"
+        ],
+        "scenePos": {}
+      }
     ]
+  },
+  "checkpoint": {
+    "question": "√49 = 7 ровно, а √8 ≈ 2,828 с волнистым знаком. Так что же делает молоток √x?",
+    "options": [
+      {
+        "text": "Делит число пополам",
+        "diagnosis": "подменяет √ на ÷2",
+        "counter": {
+          "prompt": "Тогда √16 = 8. Ударь молотком √ по фишке 16 и проверь.",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "sqrt",
+                "n": "0/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "16/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "4"
+          }
+        }
+      },
+      {
+        "text": "Ищет число, которое, умноженное само на себя, даёт исходное",
+        "correct": true
+      },
+      {
+        "text": "Корень можно извлечь из чего угодно",
+        "diagnosis": "не знает области определения корня",
+        "counter": {
+          "prompt": "Проверь на фишке −9: ударь √ и послушай, что скажет молоток.",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "sqrt",
+                "n": "0/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "-9/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел границ: фишки 0, 1, 1/4 и 2. Ударь √ по каждой. Кто не сдвинулся? Корень УМЕНЬШИЛ 1/4 или увеличил? И загляни в историю: у кого появился знак ≈?",
+    "board": {
+      "v": 1,
+      "tools": [
+        {
+          "op": "sqrt",
+          "n": "0/1",
+          "hidden": false
+        }
+      ],
+      "objects": [
+        {
+          "kind": "number",
+          "trail": [
+            "0/1"
+          ],
+          "scenePos": {}
+        },
+        {
+          "kind": "number",
+          "trail": [
+            "1/1"
+          ],
+          "scenePos": {}
+        },
+        {
+          "kind": "number",
+          "trail": [
+            "1/4"
+          ],
+          "scenePos": {}
+        },
+        {
+          "kind": "number",
+          "trail": [
+            "2/1"
+          ],
+          "scenePos": {}
+        }
+      ]
+    },
+    "goal": {
+      "kind": "values-include",
+      "values": [
+        "1/2",
+        "1,414"
+      ]
+    }
   }
 }

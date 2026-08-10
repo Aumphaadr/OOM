@@ -2,18 +2,158 @@
   "id": "neg-01",
   "task": "Ударь молотком −5 по каждому числу так, чтобы все стали отрицательными.",
   "scene": "boxes",
-  "goal": { "kind": "all-values", "check": "negative" },
+  "goal": {
+    "kind": "all-values",
+    "check": "negative"
+  },
   "hints": [
     "Возьми молоток −5 в руку кликом по нему в панели.",
     "3 − 5 — это меньше нуля? А 1 − 5?"
   ],
   "board": {
     "v": 1,
-    "tools": [{ "op": "sub", "n": "5/1", "hidden": false }],
+    "tools": [
+      {
+        "op": "sub",
+        "n": "5/1",
+        "hidden": false
+      }
+    ],
     "objects": [
-      { "kind": "number", "trail": ["3/1"], "scenePos": {} },
-      { "kind": "number", "trail": ["2/1"], "scenePos": {} },
-      { "kind": "number", "trail": ["1/1"], "scenePos": {} }
+      {
+        "kind": "number",
+        "trail": [
+          "3/1"
+        ],
+        "scenePos": {}
+      },
+      {
+        "kind": "number",
+        "trail": [
+          "2/1"
+        ],
+        "scenePos": {}
+      },
+      {
+        "kind": "number",
+        "trail": [
+          "1/1"
+        ],
+        "scenePos": {}
+      }
     ]
+  },
+  "checkpoint": {
+    "question": "Числа 3, 2 и 1 меньше пятёрки, но молоток −5 сработал по каждому. Что ты заметил?",
+    "options": [
+      {
+        "text": "Из меньшего числа нельзя вычесть большее",
+        "diagnosis": "верит, что из меньшего нельзя вычесть большее",
+        "counter": {
+          "prompt": "Проверь ещё раз: фишка 3, молоток −5. Если вычесть и правда нельзя — молоток откажется. Ударь.",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "sub",
+                "n": "5/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "3/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "-2"
+          }
+        }
+      },
+      {
+        "text": "Вычесть можно из любого числа — ответ просто уходит ниже нуля",
+        "correct": true
+      },
+      {
+        "text": "Молоток −5 просто ставит минус перед числом",
+        "diagnosis": "думает, что −N приписывает знак минус",
+        "counter": {
+          "prompt": "Тогда фишка 100 после удара станет −100. Ударь −5 по сотне и проверь.",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "sub",
+                "n": "5/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "100/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "95"
+          }
+        }
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Проверь вывод на хитрецах: ударь −5 по фишкам 5, 0 и −2. Кто окажется ровно на нуле? Кто уйдёт ещё глубже в минус?",
+    "board": {
+      "v": 1,
+      "tools": [
+        {
+          "op": "sub",
+          "n": "5/1",
+          "hidden": false
+        }
+      ],
+      "objects": [
+        {
+          "kind": "number",
+          "trail": [
+            "5/1"
+          ],
+          "scenePos": {}
+        },
+        {
+          "kind": "number",
+          "trail": [
+            "0/1"
+          ],
+          "scenePos": {}
+        },
+        {
+          "kind": "number",
+          "trail": [
+            "-2/1"
+          ],
+          "scenePos": {}
+        }
+      ]
+    },
+    "goal": {
+      "kind": "values-include",
+      "values": [
+        "0",
+        "-5",
+        "-7"
+      ]
+    }
   }
 }
