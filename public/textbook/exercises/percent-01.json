@@ -2,7 +2,10 @@
   "id": "percent-01",
   "task": "Наушники стоят 2400 ₽, по карте скидка 15 %. Получи цену со скидкой одним ударом.",
   "scene": "boxes",
-  "goal": { "kind": "any-object-value", "value": "2040" },
+  "goal": {
+    "kind": "any-object-value",
+    "value": "2040"
+  },
   "maxSteps": 1,
   "hints": [
     "Скидка 15 % означает: платишь 85 % цены.",
@@ -10,7 +13,116 @@
   ],
   "board": {
     "v": 1,
-    "tools": [{ "op": "mul", "n": "17/20", "hidden": false }],
-    "objects": [{ "kind": "number", "trail": ["2400/1"], "scenePos": {} }]
+    "tools": [
+      {
+        "op": "mul",
+        "n": "17/20",
+        "hidden": false
+      }
+    ],
+    "objects": [
+      {
+        "kind": "number",
+        "trail": [
+          "2400/1"
+        ],
+        "scenePos": {}
+      }
+    ]
+  },
+  "checkpoint": {
+    "question": "Один удар ×0,85 — и цена 2400 стала 2040. Как это сработало?",
+    "options": [
+      {
+        "text": "Скидка 15 % — это минус 15 рублей",
+        "diagnosis": "путает проценты с рублями",
+        "counter": {
+          "prompt": "Проверь: вот молоток −15. Ударь по цене 2400 — похоже на 2040?",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "sub",
+                "n": "15/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "2400/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "2385"
+          }
+        }
+      },
+      {
+        "text": "Скидка 15 % — это разделить цену на 15",
+        "diagnosis": "подменяет N% делением на N",
+        "counter": {
+          "prompt": "Вот молоток ÷15. Ударь: наушники за 160 рублей — не подозрительно ли дёшево?",
+          "board": {
+            "v": 1,
+            "tools": [
+              {
+                "op": "div",
+                "n": "15/1",
+                "hidden": false
+              }
+            ],
+            "objects": [
+              {
+                "kind": "number",
+                "trail": [
+                  "2400/1"
+                ],
+                "scenePos": {}
+              }
+            ]
+          },
+          "goal": {
+            "kind": "any-object-value",
+            "value": "160"
+          }
+        }
+      },
+      {
+        "text": "Осталось 85 сотых цены: 100 % − 15 % = 85 %, а 85 % — это ×0,85",
+        "correct": true
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: ударь ×0,85 по 2040 ещё раз — вторая скидка 15 %. Если бы скидки складывались (15 + 15 = 30 %), вышло бы 1680. Сколько вышло на самом деле?",
+    "board": {
+      "v": 1,
+      "tools": [
+        {
+          "op": "mul",
+          "n": "17/20",
+          "hidden": false
+        }
+      ],
+      "objects": [
+        {
+          "kind": "number",
+          "trail": [
+            "2040/1"
+          ],
+          "scenePos": {}
+        }
+      ]
+    },
+    "goal": {
+      "kind": "any-object-value",
+      "value": "1734"
+    }
   }
 }

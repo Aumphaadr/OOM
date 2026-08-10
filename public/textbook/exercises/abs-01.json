@@ -1,0 +1,61 @@
+{
+  "id": "abs-01",
+  "task": "Ударь молотком |x| по каждой фишке: −7, 4 и −2. Кто сдвинулся, а кто остался на месте?",
+  "scene": "boxes",
+  "goal": { "kind": "values-include", "values": ["7", "4", "2"] },
+  "hints": ["Модуль — расстояние до нуля: у −7 и у 7 оно одинаковое."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "abs", "n": "0/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["-7/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["4/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-2/1"], "scenePos": {} }
+    ]
+  },
+  "checkpoint": {
+    "question": "Что делает молоток |x|?",
+    "options": [
+      {
+        "text": "Меняет знак любому числу",
+        "diagnosis": "путает модуль с ×(−1)",
+        "counter": {
+          "prompt": "Тогда |4| = −4. Ударь |x| по четвёрке и смотри: сдвинется ли она?",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "abs", "n": "0/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["4/1"], "scenePos": {} }]
+          }
+        }
+      },
+      {
+        "text": "Показывает расстояние до нуля: отрицательным меняет знак, остальных не трогает",
+        "correct": true
+      },
+      {
+        "text": "После |x| число всегда положительное",
+        "diagnosis": "считает ноль положительным",
+        "counter": {
+          "prompt": "Ударь |x| по нулю. Ноль остался нулём — а ноль не положительный. Правильное слово: НЕотрицательное.",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "abs", "n": "0/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["0/1"], "scenePos": {} }]
+          }
+        }
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: |0| и |−1/2|. Ударь по обеим: ноль стоит на месте, а минус-половинка?",
+    "board": {
+      "v": 1,
+      "tools": [{ "op": "abs", "n": "0/1", "hidden": false }],
+      "objects": [
+        { "kind": "number", "trail": ["0/1"], "scenePos": {} },
+        { "kind": "number", "trail": ["-1/2"], "scenePos": {} }
+      ]
+    },
+    "goal": { "kind": "values-include", "values": ["1/2"] }
+  }
+}

@@ -6,6 +6,16 @@
       "file": "chapters/negative-numbers.html"
     },
     {
+      "id": "abs-value",
+      "title": "Модуль: расстояние до нуля",
+      "file": "chapters/abs-value.html"
+    },
+    {
+      "id": "mul-neg",
+      "title": "Разворот: минус на минус",
+      "file": "chapters/mul-neg.html"
+    },
+    {
       "id": "fraction-tapes",
       "title": "Дроби: ленточки",
       "file": "chapters/fraction-tapes.html"
@@ -21,9 +31,19 @@
       "file": "chapters/common-denominator.html"
     },
     {
+      "id": "fraction-add",
+      "title": "Сложение дробей",
+      "file": "chapters/fraction-add.html"
+    },
+    {
       "id": "improper-fractions",
       "title": "Дроби больше единицы",
       "file": "chapters/improper-fractions.html"
+    },
+    {
+      "id": "mul-div-size",
+      "title": "Умножить — не значит увеличить",
+      "file": "chapters/mul-div-size.html"
     },
     {
       "id": "conveyor-order",
@@ -31,9 +51,24 @@
       "file": "chapters/conveyor-order.html"
     },
     {
+      "id": "variable-slider",
+      "title": "Переменная: число на ползунке",
+      "file": "chapters/variable-slider.html"
+    },
+    {
       "id": "functions",
       "title": "Функция-машина",
       "file": "chapters/functions.html"
+    },
+    {
+      "id": "combo-tools",
+      "title": "Собери свой молоток",
+      "file": "chapters/combo-tools.html"
+    },
+    {
+      "id": "black-box",
+      "title": "Чёрный ящик",
+      "file": "chapters/black-box.html"
     },
     {
       "id": "square-meaning",
@@ -44,6 +79,11 @@
       "id": "powers-roots",
       "title": "Степени и корни",
       "file": "chapters/powers-roots.html"
+    },
+    {
+      "id": "power-zero-neg",
+      "title": "Показатель ноль и минус",
+      "file": "chapters/power-zero-neg.html"
     },
     {
       "id": "area-basics",
@@ -64,6 +104,11 @@
       "id": "percents",
       "title": "Проценты",
       "file": "chapters/percents.html"
+    },
+    {
+      "id": "percent-reverse",
+      "title": "Проценты наоборот",
+      "file": "chapters/percent-reverse.html"
     },
     {
       "id": "equations",

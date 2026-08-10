@@ -1,0 +1,66 @@
+{
+  "id": "pz-01",
+  "task": "Молоток x⁰: ударь по 5, по 2 и по −3. Куда все приехали?",
+  "scene": "boxes",
+  "goal": { "kind": "all-values", "check": "positive" },
+  "hints": ["Все три удара дают один и тот же ответ — и это не ноль."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "pow", "n": "0/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["5/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-3/1"], "scenePos": {} }
+    ]
+  },
+  "checkpoint": {
+    "question": "Чему равно x⁰?",
+    "options": [
+      {
+        "text": "x⁰ = 0: степень ноль — значит, ноль",
+        "diagnosis": "считает x⁰ = 0",
+        "counter": {
+          "prompt": "Ударь x⁰ по семёрке: ноль ли вышел?",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "pow", "n": "0/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["7/1"], "scenePos": {} }]
+          },
+          "goal": { "kind": "any-object-value", "value": "1" }
+        }
+      },
+      {
+        "text": "x⁰ = x: нулевая степень ничего не делает",
+        "diagnosis": "считает x⁰ = x",
+        "counter": {
+          "prompt": "Ударь x⁰ по семёрке: осталась ли семёрка на месте?",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "pow", "n": "0/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["7/1"], "scenePos": {} }]
+          },
+          "goal": { "kind": "any-object-value", "value": "1" }
+        }
+      },
+      {
+        "text": "x⁰ = 1 для любого x, кроме самого нуля: этот молоток склеивает всех в единицу",
+        "correct": true
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: ударь x⁻¹ по двойке — переворот в половинку! А теперь ударь x⁰ и x⁻¹ по нулю: оба откажутся, и у каждого своя причина.",
+    "board": {
+      "v": 1,
+      "tools": [
+        { "op": "pow", "n": "0/1", "hidden": false },
+        { "op": "pow", "n": "-1/1", "hidden": false }
+      ],
+      "objects": [
+        { "kind": "number", "trail": ["0/1"], "scenePos": {} },
+        { "kind": "number", "trail": ["2/1"], "scenePos": {} }
+      ]
+    },
+    "goal": { "kind": "any-object-value", "value": "1/2" }
+  }
+}

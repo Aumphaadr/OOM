@@ -1,0 +1,59 @@
+{
+  "id": "mn-02",
+  "task": "⭐ Сколько будет (−3) × (−2)? Возьми молоток ×(−2) и ударь по фишке −3.",
+  "scene": "boxes",
+  "goal": { "kind": "any-object-value", "value": "6" },
+  "hints": ["×(−2) — это «удвоить и развернуть». Фишка −3 уже смотрит влево…"],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mul", "n": "-2/1", "hidden": false }],
+    "objects": [{ "kind": "number", "trail": ["-3/1"], "scenePos": {} }]
+  },
+  "checkpoint": {
+    "question": "(−3) × (−2) = 6, плюс. Почему минус на минус даёт плюс?",
+    "options": [
+      {
+        "text": "Не даёт: минус и минус — ещё минусовее",
+        "diagnosis": "минус на минус = минус (минусы «складываются»)",
+        "counter": {
+          "prompt": "Тогда (−1) × (−1) = −1. Ударь ×(−1) по фишке −1 и посмотри.",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "mul", "n": "-1/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["-1/1"], "scenePos": {} }]
+          },
+          "goal": { "kind": "any-object-value", "value": "1" }
+        }
+      },
+      {
+        "text": "Знак ответа берётся у того числа, которое больше",
+        "diagnosis": "знак произведения — от большего модуля (правило сложения)",
+        "counter": {
+          "prompt": "Тогда (−2) × 5 = +10 — пятёрка ведь больше? Ударь ×(−2) по пятёрке.",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "mul", "n": "-2/1", "hidden": false }],
+            "objects": [{ "kind": "number", "trail": ["5/1"], "scenePos": {} }]
+          },
+          "goal": { "kind": "any-object-value", "value": "-10" }
+        }
+      },
+      {
+        "text": "×(−1) — это разворот. Развернуться дважды — снова смотреть туда же",
+        "correct": true
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: разверни 0 и −1/2. Кто остался на месте? У нуля нет стороны — он сам центр разворота.",
+    "board": {
+      "v": 1,
+      "tools": [{ "op": "mul", "n": "-1/1", "hidden": false }],
+      "objects": [
+        { "kind": "number", "trail": ["0/1"], "scenePos": {} },
+        { "kind": "number", "trail": ["-1/2"], "scenePos": {} }
+      ]
+    },
+    "goal": { "kind": "values-include", "values": ["1/2"] }
+  }
+}

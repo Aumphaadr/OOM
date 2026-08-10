@@ -1,0 +1,53 @@
+{
+  "id": "bb-02",
+  "task": "⭐ Два тёмных ящика: где-то «+2», где-то «×2». Вход 5 должен дать выход 14. Расставь удары в верном порядке.",
+  "scene": "conveyor",
+  "goal": { "kind": "any-object-value", "value": "14" },
+  "hints": ["(5 + 2) × 2 = 14, а 5 × 2 + 2 = 12: порядок решает."],
+  "board": {
+    "v": 1,
+    "tools": [
+      { "op": "add", "n": "2/1", "hidden": true },
+      { "op": "mul", "n": "2/1", "hidden": true }
+    ],
+    "objects": [{ "kind": "number", "trail": ["5/1"], "scenePos": {} }]
+  },
+  "checkpoint": {
+    "question": "Как разгадывают чёрный ящик?",
+    "options": [
+      {
+        "text": "Никак: что внутри — не видно",
+        "diagnosis": "пасует перед неизвестным инструментом",
+        "counter": {
+          "prompt": "Прогони НОЛЬ через ящик-прибавлялку: вход 0 заставляет её выдать свою добавку с потрохами.",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "add", "n": "2/1", "hidden": true }],
+            "objects": [{ "kind": "number", "trail": ["0/1"], "scenePos": {} }]
+          },
+          "goal": { "kind": "any-object-value", "value": "2" }
+        }
+      },
+      {
+        "text": "Подавать удобные входы и читать протокол: 0 выдаёт прибавку, 1 выдаёт множитель",
+        "correct": true
+      },
+      {
+        "text": "Хватит одного любого входа",
+        "diagnosis": "делает вывод по одному примеру",
+        "counter": {
+          "prompt": "Вход 2 дал выход 4. Это «+2» или «×2»? Один пример молчит — прогони ещё и тройку.",
+          "board": {
+            "v": 1,
+            "tools": [{ "op": "mul", "n": "2/1", "hidden": true }],
+            "objects": [
+              { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+              { "kind": "number", "trail": ["3/1"], "scenePos": {} }
+            ]
+          },
+          "goal": { "kind": "any-object-value", "value": "6" }
+        }
+      }
+    ]
+  }
+}

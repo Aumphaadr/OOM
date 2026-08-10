@@ -1,0 +1,17 @@
+{
+  "id": "mn-01",
+  "task": "Молоток ×(−1) — разворот вокруг нуля. Ударь по всем четырём фишкам: картинка отразится, как в зеркале. Ударь ещё раз — всё вернётся.",
+  "scene": "numberline",
+  "goal": { "kind": "values-include", "values": ["4", "2", "-1", "-3"] },
+  "hints": ["Каждая фишка прыгает на ту же дистанцию по другую сторону нуля."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mul", "n": "-1/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["-4/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-2/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["1/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["3/1"], "scenePos": {} }
+    ]
+  }
+}
