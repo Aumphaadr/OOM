@@ -179,12 +179,12 @@ export class ConveyorScene implements Scene {
     root.innerHTML = `
       <h3>Конвейер</h3>
       <button id="belt-reverse" class="btn ghost"></button>
-      <div class="series-row" style="margin-top:8px; align-items:center">
+      <div class="series-row">
         <span class="field">участков: <b id="section-count"></b></span>
-        <button id="section-add" class="btn ghost" style="margin-top:0">+</button>
-        <button id="section-del" class="btn ghost" style="margin-top:0">−</button>
+        <button id="section-add" class="btn ghost">+</button>
+        <button id="section-del" class="btn ghost">−</button>
       </div>
-      <div class="series-row" style="margin-top:8px">
+      <div class="series-row">
         <label class="field">старт<input id="series-start" value="1" /></label>
         <label class="field">шаг<input id="series-step" value="1" /></label>
         <label class="field">штук<input id="series-count" type="number" value="5" min="1" max="12" /></label>

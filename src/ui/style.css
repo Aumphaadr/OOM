@@ -50,7 +50,7 @@ body {
 
 .topbar h1 { font-size: 1.3rem; color: var(--accent); }
 .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-#lesson-select { max-width: 170px; padding: 8px; }
+#lesson-select { max-width: 170px; padding: 0 8px; }
 
 .history-wrap { position: relative; }
 .history-dropdown {
@@ -114,6 +114,9 @@ body {
 /* Инлайн-иконки */
 .icon { display: inline-block; vertical-align: -2px; }
 .ic { display: inline-flex; margin-right: 7px; vertical-align: -2px; }
+/* В кнопках зазор иконка↔текст делает flex-gap (текстовый узел — анонимный
+   flex-элемент), поэтому margin не нужен: gap сам исчезает, когда иконка одна */
+.btn .ic { margin-right: 0; }
 .ic .icon { display: block; }
 button[data-icon] .icon { display: block; margin: 0 auto; }
 .topbar h1 { display: flex; align-items: center; gap: 2px; }
@@ -137,7 +140,7 @@ button[data-icon] .icon { display: block; margin: 0 auto; }
   padding: 12px;
 }
 
-.panel h3 { color: var(--accent); font-size: 0.95rem; margin-bottom: 10px; font-weight: 600; }
+.panel h3 { color: var(--accent); font-size: 1rem; margin-bottom: 10px; font-weight: 600; }
 
 .tool-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 
@@ -183,11 +186,20 @@ button[data-icon] .icon { display: block; margin: 0 auto; }
 .tool-forge input { flex: 1 1 60px; min-width: 0; }
 .tool-forge .btn { flex: 0 0 auto; }
 
+/* Конструктор комбо: без min-width:0 интринзик-ширина селекта и number-инпута
+   выталкивает кнопки за обрез сайдбара (overflow-x: hidden) — их не нажать */
+#combo-forge { margin-top: 8px; }
+#combo-forge select { width: 100%; min-width: 0; margin-bottom: 8px; }
+#combo-forge .series-row input { flex: 1 1 auto; min-width: 0; }
+#combo-forge .series-row { margin-bottom: 8px; }
+#combo-forge .tool-list:empty { display: none; }
+
 .spawn-row { display: flex; gap: 6px; margin-bottom: 8px; }
 .spawn-row input { flex: 1; min-width: 0; }
 
-input, select {
-  padding: 8px;
+input:not([type="checkbox"]), select {
+  height: 36px;
+  padding: 0 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -201,7 +213,12 @@ input:focus, select:focus {
 }
 
 .btn {
-  padding: 8px 14px;
+  height: 36px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   border: 1px solid transparent;
   border-radius: 8px;
   font: inherit;
@@ -218,22 +235,23 @@ input:focus, select:focus {
 .btn.ghost:hover { color: var(--text-primary); border-color: var(--accent-border); }
 .topbar .btn.ghost { width: auto; margin-top: 0; }
 
-.hint { color: var(--text-secondary); font-size: 0.8rem; margin-top: 10px; }
+/* 0.875rem = 14px — пониженный размер ТОЛЬКО для длинных абзацев, базовый текст 16px */
+.hint { color: var(--text-secondary); font-size: 0.875rem; margin-top: 10px; }
 
-.series-row { display: flex; gap: 6px; margin-bottom: 8px; }
-label.field { flex: 1; min-width: 0; font-size: 0.75rem; color: var(--text-secondary); }
+.series-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: flex-end; }
+.series-row .btn { margin-top: 0; width: auto; flex: 0 0 auto; }
+label.field { flex: 1; min-width: 0; color: var(--text-secondary); }
 label.field input,
 label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block; }
 
 .subtitles {
   list-style: none;
   font-variant-numeric: tabular-nums;
-  font-size: 0.95rem;
 }
 .subtitles:empty::after {
   content: 'Пока пусто: история действий появится здесь';
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 .subtitles li {
   padding: 5px 2px;
@@ -254,7 +272,7 @@ label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block;
 .reader-body { padding: 18px 20px 40px; }
 .reader-body h2 { color: var(--accent); font-size: 1.2rem; margin: 10px 0 12px; }
 .reader-body h3 { color: var(--accent); font-size: 1rem; margin: 18px 0 8px; }
-.reader-body p { margin: 8px 0; color: var(--text-secondary); font-size: 0.95rem; }
+.reader-body p { margin: 8px 0; color: var(--text-secondary); }
 .reader-body b, .reader-body strong { color: var(--text-primary); }
 .reader-body code {
   background: var(--bg-tertiary);
@@ -311,10 +329,41 @@ label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block;
 .task-panel.done { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
 .task-head { display: flex; align-items: center; gap: 8px; }
 .task-head b { color: var(--accent); }
-.task-steps { color: var(--text-secondary); font-size: 0.85rem; }
+.task-steps { color: var(--text-secondary); font-size: 0.875rem; }
 .task-actions { margin-left: auto; display: flex; gap: 4px; }
-.task-actions .btn { padding: 3px 8px; margin: 0; width: auto; }
-.task-panel p { margin-top: 6px; font-size: 0.95rem; }
+.task-actions .btn { height: 28px; padding: 0 8px; margin: 0; width: auto; }
+.task-panel p { margin-top: 6px; }
+
+/* Чекпоинт: варианты вывода — кнопки-формулировки; погашенные зачёркнуты */
+.task-options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.task-options .opt {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.task-options .opt:hover:not(:disabled) { border-color: var(--accent-border); }
+.task-options .opt-broken {
+  opacity: 0.55;
+  text-decoration: line-through;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* Карта диагнозов преподавателя — шапка дропдауна истории */
+.diagnosis-map {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.diagnosis-map b { color: var(--accent); display: block; margin-bottom: 4px; }
 
 .stage-wrap { flex: 1; position: relative; min-width: 0; }
 

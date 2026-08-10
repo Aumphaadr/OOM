@@ -1,14 +1,74 @@
 {
   "chapters": [
-    { "id": "negative-numbers", "title": "Отрицательные числа", "file": "chapters/negative-numbers.html" },
-    { "id": "fraction-tapes", "title": "Дроби: ленточки", "file": "chapters/fraction-tapes.html" },
-    { "id": "fraction-compare", "title": "Сравнение дробей", "file": "chapters/fraction-compare.html" },
-    { "id": "common-denominator", "title": "Общий знаменатель", "file": "chapters/common-denominator.html" },
-    { "id": "improper-fractions", "title": "Дроби больше единицы", "file": "chapters/improper-fractions.html" },
-    { "id": "conveyor-order", "title": "Конвейер: порядок действий", "file": "chapters/conveyor-order.html" },
-    { "id": "functions", "title": "Функция-машина", "file": "chapters/functions.html" },
-    { "id": "powers-roots", "title": "Степени и корни", "file": "chapters/powers-roots.html" },
-    { "id": "percents", "title": "Проценты", "file": "chapters/percents.html" },
-    { "id": "equations", "title": "Уравнения: весы и наклейки", "file": "chapters/equations.html" }
+    {
+      "id": "negative-numbers",
+      "title": "Отрицательные числа",
+      "file": "chapters/negative-numbers.html"
+    },
+    {
+      "id": "fraction-tapes",
+      "title": "Дроби: ленточки",
+      "file": "chapters/fraction-tapes.html"
+    },
+    {
+      "id": "fraction-compare",
+      "title": "Сравнение дробей",
+      "file": "chapters/fraction-compare.html"
+    },
+    {
+      "id": "common-denominator",
+      "title": "Общий знаменатель",
+      "file": "chapters/common-denominator.html"
+    },
+    {
+      "id": "improper-fractions",
+      "title": "Дроби больше единицы",
+      "file": "chapters/improper-fractions.html"
+    },
+    {
+      "id": "conveyor-order",
+      "title": "Конвейер: порядок действий",
+      "file": "chapters/conveyor-order.html"
+    },
+    {
+      "id": "functions",
+      "title": "Функция-машина",
+      "file": "chapters/functions.html"
+    },
+    {
+      "id": "square-meaning",
+      "title": "Квадрат: что это на самом деле",
+      "file": "chapters/square-meaning.html"
+    },
+    {
+      "id": "powers-roots",
+      "title": "Степени и корни",
+      "file": "chapters/powers-roots.html"
+    },
+    {
+      "id": "area-basics",
+      "title": "Площадь: сколько клеток внутри",
+      "file": "chapters/area-basics.html"
+    },
+    {
+      "id": "area-brackets",
+      "title": "Скобки на клетчатой бумаге",
+      "file": "chapters/area-brackets.html"
+    },
+    {
+      "id": "area-square",
+      "title": "Квадрат суммы",
+      "file": "chapters/area-square.html"
+    },
+    {
+      "id": "percents",
+      "title": "Проценты",
+      "file": "chapters/percents.html"
+    },
+    {
+      "id": "equations",
+      "title": "Уравнения: весы и наклейки",
+      "file": "chapters/equations.html"
+    }
   ]
 }

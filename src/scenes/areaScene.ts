@@ -130,12 +130,12 @@ export class AreaScene implements Scene {
       <h3>Фигуры</h3>
       <div class="series-row">
         <label class="field">длина<input id="seg-len" value="5" /></label>
-        <button id="spawn-seg" class="btn primary" style="margin-top:14px"><span class="ic">${icon('plus', 12)}</span>Отрезок</button>
+        <button id="spawn-seg" class="btn primary"><span class="ic">${icon('plus', 12)}</span>Отрезок</button>
       </div>
       <div class="series-row">
         <label class="field">ширина<input id="rect-w" value="5" /></label>
         <label class="field">высота<input id="rect-h" value="3" /></label>
-        <button id="spawn-rect" class="btn primary" style="margin-top:14px"><span class="ic">${icon('plus', 12)}</span></button>
+        <button id="spawn-rect" class="btn primary"><span class="ic">${icon('plus', 12)}</span></button>
       </div>
       <p class="hint">Тяни верхнюю кромку — экструзия (отрезок станет прямоугольником).
         Клик по линии сетки внутри фигуры — рез, по резу — склейка.
