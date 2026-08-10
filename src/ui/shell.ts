@@ -7,7 +7,7 @@ import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
 import { LessonSpec, loadLesson } from '../lessons/lesson';
 import { Reader } from './reader';
 import { icon } from './icons';
-import { diagnosisSummary } from './diagnoses';
+import { diagnosisSummary, diagnosisReport, clearDiagnoses } from './diagnoses';
 
 const BOARD_STORAGE_KEY = 'oom-board-v1';
 
@@ -311,8 +311,25 @@ export class Shell {
         const lines = diagnosisSummary();
         map.hidden = !lines.length;
         map.innerHTML = lines.length
-          ? '<b>Карта диагнозов</b>' + lines.map((l) => `<div>• ${l}</div>`).join('')
+          ? '<b>Карта диагнозов</b>' + lines.map((l) => `<div>• ${l}</div>`).join('') +
+            '<div class="diag-actions">' +
+            '<button id="diag-save" class="btn ghost">Сохранить файлом</button>' +
+            '<button id="diag-clear" class="btn ghost">Очистить</button></div>'
           : '';
+        map.querySelector('#diag-save')?.addEventListener('click', () => {
+          const blob = new Blob([diagnosisReport()], { type: 'text/plain;charset=utf-8' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `oom-диагнозы-${new Date().toISOString().slice(0, 10)}.txt`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        });
+        map.querySelector('#diag-clear')?.addEventListener('click', () => {
+          if (window.confirm('Стереть карту диагнозов? (Например, перед новым учеником.)')) {
+            clearDiagnoses();
+            map.hidden = true;
+          }
+        });
         dropdown.scrollTop = dropdown.scrollHeight;
       }
     });

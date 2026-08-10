@@ -364,6 +364,8 @@ label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block;
   color: var(--text-secondary);
 }
 .diagnosis-map b { color: var(--accent); display: block; margin-bottom: 4px; }
+.diag-actions { display: flex; gap: 6px; margin-top: 8px; }
+.diag-actions .btn { width: auto; margin-top: 0; height: 28px; padding: 0 10px; font-size: 0.875rem; }
 
 .stage-wrap { flex: 1; position: relative; min-width: 0; }
 

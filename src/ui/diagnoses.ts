@@ -31,6 +31,29 @@ export function recordDiagnosis(exerciseId: string, diagnosis: string): void {
   }
 }
 
+/** Стереть карту (например, перед занятием с новым учеником). */
+export function clearDiagnoses(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Текстовый отчёт для выгрузки: сводка + журнал по времени. */
+export function diagnosisReport(): string {
+  const all = loadAll();
+  if (!all.length) return 'Карта диагнозов пуста.';
+  const lines = ['Карта диагнозов ООМ', ''];
+  lines.push('Сводка:');
+  for (const s of diagnosisSummary()) lines.push('• ' + s);
+  lines.push('', 'Журнал:');
+  for (const d of all) {
+    lines.push(`${d.when.slice(0, 16).replace('T', ' ')} — ${d.exerciseId}: ${d.diagnosis}`);
+  }
+  return lines.join('\n');
+}
+
 /** Сводка для преподавателя: «подменяет x² на ×10 — 2 раза (sq-01)». */
 export function diagnosisSummary(): string[] {
   const grouped = new Map<string, { count: number; exercises: Set<string> }>();

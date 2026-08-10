@@ -115,9 +115,11 @@ export class Reader {
             deps.say(`🎉 Задание «${this.active.id}» выполнено за ${this.steps} ход(а)!`);
           }
         }
-      } else if (this.phase === 'counter' && counted && this.counterOf !== null) {
+      } else if (this.phase === 'counter' && this.counterOf !== null &&
+                 (counted || e.kind === 'tool-rejected' || e.kind === 'tape-refused')) {
         // Контрпример считается предъявленным, когда его цель достигнута
-        // (или после первого же хода, если цели нет): вывод сломан — гасим вариант.
+        // (или после первого же хода/отказа, если цели нет): отказ инструмента
+        // или линейки — тоже опровержение («√ из −9», «линейка /10 к резу 1/4»).
         const goal = this.active.checkpoint!.options[this.counterOf]!.counter?.goal;
         if (!goal || checkGoal(deps.session, goal)) {
           this.broken.add(this.counterOf);
