@@ -43,12 +43,21 @@
                 <option value="div">разделить на</option>
                 <option value="pow">в степень (xⁿ)</option>
               </optgroup>
+              <optgroup label="прикидка и остатки">
+                <option value="round">округлить до (≈N)</option>
+                <option value="mod">остаток от ÷N</option>
+                <option value="quot">рядов по N</option>
+              </optgroup>
               <optgroup label="функции">
                 <option value="sq">в квадрат (x²)</option>
                 <option value="cube">в куб (x³)</option>
                 <option value="sqrt">корень (√x)</option>
                 <option value="cbrt">кубокорень (∛x)</option>
                 <option value="abs">модуль (|x|)</option>
+              </optgroup>
+              <optgroup label="для уравнений">
+                <option value="addx">прибавить иксы (+n·x)</option>
+                <option value="subx">убрать иксы (−n·x)</option>
               </optgroup>
             </select>
             <input id="forge-n" value="5" title="Число или дробь: 5, −2,75, 1/3" />
@@ -63,6 +72,11 @@
                 <option value="mul">умножить на</option>
                 <option value="div">разделить на</option>
                 <option value="pow">в степень (xⁿ)</option>
+              </optgroup>
+              <optgroup label="прикидка и остатки">
+                <option value="round">округлить до (≈N)</option>
+                <option value="mod">остаток от ÷N</option>
+                <option value="quot">рядов по N</option>
               </optgroup>
               <optgroup label="функции">
                 <option value="sq">в квадрат (x²)</option>
@@ -109,6 +123,7 @@
             <span id="task-status"></span>
             <b>Задание</b>
             <span id="task-steps" class="task-steps"></span>
+            <span id="task-aim" class="task-aim" hidden></span>
             <span class="task-actions">
               <button id="task-hint" class="btn ghost" title="Подсказка" data-icon="bulb"></button>
               <button id="task-reset" class="btn ghost" title="Начать заново" data-icon="refresh"></button>

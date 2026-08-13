@@ -2,7 +2,7 @@ import { Scene, SceneContext } from './scene';
 import { theme } from '../render/theme';
 import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
-import { RectObject, visibleLabel } from '../core/model';
+import { RectObject, rectPerimeter, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
 import { icon } from '../ui/icons';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
@@ -168,6 +168,7 @@ export class AreaScene implements Scene {
       <label class="field tp-check"><input type="checkbox" id="ar-w" /> показывать ширину</label>
       <label class="field tp-check"><input type="checkbox" id="ar-h" /> показывать высоту</label>
       <label class="field tp-check"><input type="checkbox" id="ar-area" /> показывать площадь</label>
+      <label class="field tp-check"><input type="checkbox" id="ar-perim" /> показывать периметр</label>
       <button id="ar-rotate" class="btn primary"><span class="ic">${icon('refresh', 13)}</span>Повернуть на 90°</button>
       <button id="ar-del" class="btn ghost"><span class="ic">${icon('trash', 13)}</span>Удалить фигуру</button>
     `;
@@ -184,6 +185,7 @@ export class AreaScene implements Scene {
     bindFlag('#ar-w', (r, on) => { r.showW = on; });
     bindFlag('#ar-h', (r, on) => { r.showH = on; });
     bindFlag('#ar-area', (r, on) => { r.showArea = on; });
+    bindFlag('#ar-perim', (r, on) => { r.showPerimeter = on; });
     q('#ar-rotate').addEventListener('click', () => {
       const r = this.cardRect();
       if (r && this.ctx) this.ctx.session.rotateRect(r.id);
@@ -211,6 +213,7 @@ export class AreaScene implements Scene {
     q<HTMLInputElement>('#ar-w').checked = r.showW;
     q<HTMLInputElement>('#ar-h').checked = r.showH;
     q<HTMLInputElement>('#ar-area').checked = r.showArea;
+    q<HTMLInputElement>('#ar-perim').checked = r.showPerimeter;
     (q('#ar-rotate') as HTMLButtonElement).hidden = r.h.isZero(); // отрезку вертеться некуда
     (q('#ar-del') as HTMLButtonElement).hidden = !this.ctx.restrictions.construct;
     const host = this.card.parentElement!;
@@ -589,6 +592,13 @@ export class AreaScene implements Scene {
         const ch = ys[row + 1]!.sub(ys[row]!);
         const cy = p.y - (ys[row]!.toNumber() + ch.toNumber() / 2) * PX;
         g.fillText(ch.toDisplay(), p.x - 14, cy);
+      }
+
+      // Периметр («забор») — по запросу, под фигурой
+      if (r.showPerimeter) {
+        g.fillStyle = theme.gold;
+        g.font = 'bold 12px Inter, sans-serif';
+        g.fillText(`P = ${rectPerimeter(r).toDisplay()}`, p.x + (r.w.toNumber() * PX) / 2, p.y + 28);
       }
     }
 

@@ -114,6 +114,11 @@
       "id": "equations",
       "title": "Уравнения: весы и наклейки",
       "file": "chapters/equations.html"
+    },
+    {
+      "id": "equations-2",
+      "title": "Уравнения-2: x с обеих сторон",
+      "file": "chapters/equations-2.html"
     }
   ]
 }

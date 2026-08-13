@@ -210,4 +210,11 @@ export function rootApprox(v: Rational, k: bigint, digits = 3): Rational {
   return Rational.of(neg ? -s : s, scale);
 }
 
+/** Пол (наибольшее целое ≤ v) — честно для отрицательных. */
+export function floorRational(v: Rational): Rational {
+  let q = v.num / v.den; // trunc к нулю
+  if (v.num < 0n && q * v.den !== v.num) q -= 1n;
+  return Rational.of(q);
+}
+
 export const R = Rational.of;

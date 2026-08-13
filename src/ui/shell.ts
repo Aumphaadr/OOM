@@ -1,6 +1,6 @@
 import { Session } from '../core/session';
 import { Rational } from '../core/rational';
-import { subtitleFor, visibleLabel, isUnaryOp, toolLabel, PrimitiveOp } from '../core/model';
+import { subtitleFor, visibleLabel, isUnaryOp, toolLabel, PrimitiveOp, VarOp } from '../core/model';
 import { exportBoard, importBoard } from '../core/serialize';
 import { CanvasHost } from '../render/canvasHost';
 import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
@@ -11,9 +11,11 @@ import { diagnosisSummary, diagnosisReport, clearDiagnoses } from './diagnoses';
 
 const BOARD_STORAGE_KEY = 'oom-board-v1';
 
-const OP_FROM_SELECT: Record<string, PrimitiveOp> = {
+const OP_FROM_SELECT: Record<string, PrimitiveOp | VarOp> = {
   add: 'add', sub: 'sub', mul: 'mul', div: 'div', pow: 'pow',
+  round: 'round', mod: 'mod', quot: 'quot',
   sq: 'sq', cube: 'cube', sqrt: 'sqrt', cbrt: 'cbrt', abs: 'abs',
+  addx: 'addx', subx: 'subx',
 };
 
 /**
@@ -202,7 +204,8 @@ export class Shell {
         n = parsed;
       }
       try {
-        this.session.addTool(op, n);
+        if (op === 'addx' || op === 'subx') this.session.addVarTool(op, n);
+        else this.session.addTool(op, n);
       } catch (err) {
         this.say(err instanceof Error ? err.message : String(err));
       }
@@ -244,6 +247,7 @@ export class Shell {
     document.getElementById('combo-add')!.addEventListener('click', () => {
       if (comboSteps.length >= 6) return this.say('Комбо из шести шагов достаточно любому.');
       const op = OP_FROM_SELECT[comboOp.value] ?? 'add';
+      if (op === 'addx' || op === 'subx') return this.say('Молотки ±x в комбо не собираются.');
       let n = Rational.of(0);
       if (!isUnaryOp(op)) {
         const parsed = Rational.parse(comboN.value);
@@ -407,7 +411,7 @@ export class Shell {
         this.say(subtitleFor(e.before, e.tool, e.after), true);
       } else if (e.kind === 'tool-rejected') {
         this.say(`Инструмент ${e.tool.label} отказался: ${e.reason}`);
-      } else if (e.kind === 'tape-changed' || e.kind === 'scales-step') {
+      } else if (e.kind === 'tape-changed' || e.kind === 'scales-step' || e.kind === 'equation-step') {
         this.say(e.note);
       } else if (e.kind === 'var-set') {
         this.say(e.note, true);

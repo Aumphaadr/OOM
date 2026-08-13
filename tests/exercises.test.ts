@@ -100,17 +100,22 @@ const SOLVERS: Record<string, (s: Session) => void> = {
 
   'eq-01': (s) => {
     const u = objs(s).find((o) => o.kind === 'unknown')!;
-    s.scalesApply(u.id, tool(s, 'sub').id);
-    s.scalesApply(u.id, tool(s, 'div').id);
+    for (const op of ['sub', 'div'] as const) {
+      s.scalesApply(u.id, tool(s, op).id, 'left');
+      s.scalesApply(u.id, tool(s, op).id, 'right');
+    }
   },
   'eq-02': (s) => {
     const u = objs(s).find((o) => o.kind === 'unknown')!;
-    s.scalesApply(u.id, tool(s, 'add').id);
-    s.scalesApply(u.id, tool(s, 'div').id);
+    for (const op of ['add', 'div'] as const) {
+      s.scalesApply(u.id, tool(s, op).id, 'left');
+      s.scalesApply(u.id, tool(s, op).id, 'right');
+    }
   },
   'eq-03': (s) => {
     const u = objs(s).find((o) => o.kind === 'unknown')!;
-    s.scalesApply(u.id, tool(s, 'div').id);
+    s.scalesApply(u.id, tool(s, 'div').id, 'left');
+    s.scalesApply(u.id, tool(s, 'div').id, 'right');
   },
 
   'ar-01': (s) => s.setRectSize(objs(s)[0]!.id, R(5), R(4), true),
@@ -186,7 +191,22 @@ const SOLVERS: Record<string, (s: Session) => void> = {
   'pr-01#c0': (s) => hammer(s, 'mul'),
   'pr-01#c2': (s) => s.applyInverse(tool(s, 'mul').id, objs(s)[0]!.id),
   'pr-02': (s) => { hammer(s, 'div'); hammer(s, 'mul'); },
+
+  'eq2-01': (s) => eqBoth(s, 'subx'),
+  'eq2-02': (s) => { eqBoth(s, 'subx'); eqBoth(s, 'sub'); },
+  'eq2-02#c0': (s) => eqBoth(s, 'add'),
+  'eq2-02#c2': (s) => eqBoth(s, 'subx'),
+  'eq2-02#b': (s) => eqBoth(s, 'subx'),
+  'eq2-03': (s) => eqBoth(s, 'mul'),
+  'eq2-04': (s) => eqBoth(s, 'mul'),
 };
+
+/** Удар молотком по обеим чашам уравнения (весы качаются — равновесие держим сами). */
+function eqBoth(s: Session, op: string): void {
+  const eq = objs(s).find((o) => o.kind === 'equation')!;
+  s.equationApply(eq.id, tool(s, op).id, 'left');
+  s.equationApply(eq.id, tool(s, op).id, 'right');
+}
 
 /** Цели, совпадающие со стартом сознательно (conv-03: «верни как было»). */
 const SELF_SATISFIED_OK = new Set(['conv-03']);
