@@ -1,4 +1,4 @@
-import { Rational, sqrtExact, cbrtExact, sqrtApprox, cbrtApprox, powInt, rootExact, rootApprox } from './rational';
+import { Rational, sqrtExact, cbrtExact, sqrtApprox, cbrtApprox, powInt, rootExact, rootApprox, floorRational } from './rational';
 
 /**
  * Математические объекты — размеченное объединение типов (kind).
@@ -113,6 +113,13 @@ export interface RectObject extends ObjectBase {
   showW: boolean;
   showH: boolean;
   showArea: boolean;
+  /** Показывать периметр («забор»); по умолчанию выключено. */
+  showPerimeter: boolean;
+}
+
+/** Периметр («забор»): 2(w+h); у отрезка (h = 0) — просто удвоенная длина. */
+export function rectPerimeter(r: RectObject): Rational {
+  return r.w.add(r.h).mul(Rational.of(2));
 }
 
 /** Площади кусков: строки снизу вверх, в строке слева направо. */
@@ -129,7 +136,70 @@ export function rectPieceAreas(r: RectObject): Rational[] {
   return areas;
 }
 
-export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject;
+/** Линейная форма k·x + b — чаша весов v2 (docs/design-scales-v2.md). */
+export interface LinForm { k: Rational; b: Rational }
+
+/**
+ * Уравнение с x на обеих чашах: ax + b = cx + d (весы v2).
+ * Чаша — не стопка-история, а форма: пара коэффициентов покрывает весь
+ * материал 6–7 класса; нелинейное остаётся весам v1 и «Площадям».
+ */
+export interface EquationObject extends ObjectBase {
+  kind: 'equation';
+  name: string;          // имя неизвестного: x
+  secret: Rational;      // истинное значение (инвариант: удовлетворяет уравнению)
+  left: LinForm;
+  right: LinForm;
+  solved: boolean;       // достигнута форма x = c
+}
+
+export function linFormEval(f: LinForm, x: Rational): Rational {
+  return f.k.mul(x).add(f.b);
+}
+
+/** «2x + 3», «x», «−x + 8», «5», «0» — текст чаши. */
+export function linFormText(f: LinForm, name: string): string {
+  const one = Rational.of(1);
+  if (f.k.isZero()) return f.b.toDisplay();
+  const kStr = f.k.equals(one) ? '' : f.k.equals(one.neg()) ? '−' : f.k.toDisplay();
+  const head = `${kStr}${name}`;
+  if (f.b.isZero()) return head;
+  return f.b.sign() > 0 ? `${head} + ${f.b.toDisplay()}` : `${head} − ${f.b.neg().toDisplay()}`;
+}
+
+/** Разбор формы из текста панели: «2x+3», «x - 4», «-x», «5», «1/2x». */
+export function parseLinForm(text: string, name = 'x'): LinForm | null {
+  const s = text.replace(/\s+/g, '').replace(/−/g, '-');
+  if (!s) return null;
+  let k = Rational.of(0);
+  let b = Rational.of(0);
+  const terms = s.match(/[+-]?[^+-]+/g);
+  if (!terms || terms.join('') !== s) return null;
+  for (const t of terms) {
+    const sign = t.startsWith('-') ? Rational.of(-1) : Rational.of(1);
+    const body = t.replace(/^[+-]/, '');
+    if (body.endsWith(name)) {
+      const coefStr = body.slice(0, -name.length);
+      const coef = coefStr === '' ? Rational.of(1) : Rational.parse(coefStr);
+      if (!coef) return null;
+      k = k.add(sign.mul(coef));
+    } else {
+      const c = Rational.parse(body);
+      if (!c) return null;
+      b = b.add(sign.mul(c));
+    }
+  }
+  return { k, b };
+}
+
+export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject;
+
+/** Значение левой чаши: секрет, прогнанный через стопку наклеек. */
+export function unknownValue(u: UnknownObject): Rational {
+  let v = u.secret;
+  for (const st of u.ops) v = makeTool(st.op, st.n).apply(v);
+  return v;
+}
 
 /** Текст выражения левой чаши из стопки наклеек: x → (x × 2) + 3. */
 export function exprFor(u: UnknownObject): string {
@@ -145,6 +215,9 @@ export function exprFor(u: UnknownObject): string {
       case 'sq': e = `${wrap}²`; break;
       case 'cube': e = `${wrap}³`; break;
       case 'pow': e = `${wrap}${powSuffix(s.n)}`; break;
+      case 'round': e = `окр(${e}; ${n})`; break;
+      case 'mod': e = `ост(${e}; ${n})`; break;
+      case 'quot': e = `ряд(${e}; ${n})`; break;
       case 'sqrt': e = `√${wrap}`; break;
       case 'cbrt': e = `∛${wrap}`; break;
       case 'abs': e = `|${e}|`; break;
@@ -153,17 +226,60 @@ export function exprFor(u: UnknownObject): string {
   return e;
 }
 
-/** Является ли инструмент точным обратным к наклейке (для снятия верхней). */
-export function toolInvertsSticker(tool: Tool, sticker: { op: PrimitiveOp; n: Rational }): boolean {
-  const inv = makeTool(sticker.op, sticker.n).inverseSpec();
-  if (!inv) return false;
-  return inv.op === tool.op && (isUnaryOp(tool.op) || inv.n.equals(tool.n));
+/**
+ * Каноническая форма действия инструмента: разные молотки с одинаковым
+ * эффектом сводятся к одному виду — «клин клином вышибают»:
+ * ×(−1) ≡ ÷(−1), +0 ≡ −0, ÷n ≡ ×(1/n), x³ ≡ pow(3), √x ≡ pow(1/2).
+ */
+function actionKey(op: PrimitiveOp, n: Rational): string {
+  switch (op) {
+    case 'add': return `add:${n.num}/${n.den}`;
+    case 'sub': return `add:${n.neg().num}/${n.neg().den}`;
+    case 'mul': return `mul:${n.num}/${n.den}`;
+    case 'div': { const inv = Rational.of(n.den, n.num); return `mul:${inv.num}/${inv.den}`; }
+    case 'sq': return 'pow:2/1';
+    case 'cube': return 'pow:3/1';
+    case 'sqrt': return 'pow:1/2';
+    case 'cbrt': return 'pow:1/3';
+    case 'pow': return `pow:${n.num}/${n.den}`;
+    case 'abs': return 'abs';
+    case 'round': return `round:${n.num}/${n.den}`;
+    case 'mod': return `mod:${n.num}/${n.den}`;
+    case 'quot': return `quot:${n.num}/${n.den}`;
+  }
 }
 
-export type BinaryOp = 'add' | 'sub' | 'mul' | 'div' | 'pow';
+/** Нейтральное действие: +0, −0, ×1, ÷1, x¹ — ничего не меняет. */
+export function isNeutralAction(op: ToolOp, n: Rational): boolean {
+  if (op === 'seq' || op === 'addx' || op === 'subx' || isUnaryOp(op)) return false;
+  const key = actionKey(op, n);
+  return key === 'add:0/1' || key === 'mul:1/1' || key === 'pow:1/1';
+}
+
+/**
+ * Является ли инструмент точным обратным к наклейке (для снятия верхней).
+ * Сравниваются ДЕЙСТВИЯ, а не имена: наклейку ×(−1) снимает и ÷(−1),
+ * и повторный ×(−1) — потому что это один и тот же разворот.
+ */
+export function toolInvertsSticker(tool: Tool, sticker: { op: PrimitiveOp; n: Rational }): boolean {
+  if (tool.op === 'seq' || tool.op === 'addx' || tool.op === 'subx') return false; // комбо и ±x — не про наклейки
+  const inv = makeTool(sticker.op, sticker.n).inverseSpec();
+  if (!inv) return false;
+  return actionKey(tool.op, tool.n) === actionKey(inv.op, inv.n);
+}
+
+export type BinaryOp = 'add' | 'sub' | 'mul' | 'div' | 'pow'
+  /** Огрубитель: округлить до ближайшего кратного n (спорные — вверх). Необратим. */
+  | 'round'
+  /** Остаток от деления на n («что не влезло в полные ряды»). Необратим. */
+  | 'mod'
+  /** Число полных рядов по n (целая часть от деления). Необратим. */
+  | 'quot';
+/** Молотки «±x» — применимы только к уравнению (весы v2), по числам отказывают. */
+export type VarOp = 'addx' | 'subx';
 export type UnaryOp = 'sq' | 'cube' | 'sqrt' | 'cbrt' | 'abs';
 /** 'seq' — составной инструмент (комбо): последовательность примитивных шагов. */
-export type ToolOp = BinaryOp | UnaryOp | 'seq';
+export type ToolOp = BinaryOp | UnaryOp | VarOp | 'seq';
 export type PrimitiveOp = BinaryOp | UnaryOp;
 
 export const UNARY_OPS: readonly UnaryOp[] = ['sq', 'cube', 'sqrt', 'cbrt', 'abs'];
@@ -193,7 +309,9 @@ export interface Tool {
   inverseSpec(): { op: PrimitiveOp; n: Rational } | null;
 }
 
-const OP_SYMBOL: Record<BinaryOp, string> = { add: '+', sub: '−', mul: '×', div: '÷', pow: '^' };
+const OP_SYMBOL: Record<BinaryOp, string> = {
+  add: '+', sub: '−', mul: '×', div: '÷', pow: '^', round: '≈', mod: 'ост', quot: 'ряд',
+};
 const UNARY_LABEL: Record<UnaryOp, string> = {
   sq: 'x²', cube: 'x³', sqrt: '√x', cbrt: '∛x', abs: '|x|',
 };
@@ -214,8 +332,34 @@ export function toolLabel(op: ToolOp, n: Rational): string {
   if (op === 'seq') return '∘'; // подпись комбо задаёт makeCompositeTool
   if (isUnaryOp(op)) return UNARY_LABEL[op];
   if (op === 'pow') return `x${powSuffix(n)}`;
+  if (op === 'round') return `≈${n.toDisplay()}`;
+  if (op === 'mod') return `ост${n.toDisplay()}`;
+  if (op === 'quot') return `ряд${n.toDisplay()}`;
+  if (op === 'addx' || op === 'subx') {
+    const sign = op === 'addx' ? '+' : '−';
+    const coef = n.equals(Rational.of(1)) ? '' : n.toDisplay();
+    return `${sign}${coef}x`;
+  }
   const nStr = n.sign() < 0 ? `(${n.toDisplay()})` : n.toDisplay();
   return `${OP_SYMBOL[op]}${nStr}`;
+}
+
+/**
+ * Молоток «±x» (весы v2): прибавить/убрать n иксов с обеих чаш уравнения.
+ * По обычным объектам отказывает — сигнатура «мне нужен x».
+ */
+export function makeVarTool(op: VarOp, n: Rational, id?: string): Tool {
+  if (n.sign() <= 0) throw new Error('Коэффициент у молотка ±x должен быть положительным (знак — в самом молотке).');
+  return {
+    id: id ?? `tool-${op}-${n.num}_${n.den}`,
+    op,
+    n,
+    label: toolLabel(op, n),
+    hidden: false,
+    canApply: () => 'этому молотку нужен x — бей по уравнению',
+    apply: (v: Rational) => v, // не вызывается: canApply всегда отказывает
+    inverseSpec: () => null,   // в механике v1 (реверс, наклейки) не участвует
+  };
 }
 
 export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
@@ -226,6 +370,9 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
   }
   if (op === 'pow' && ((n.num < -100n || n.num > 100n) || n.den > 100n)) {
     throw new Error('Такой показатель степени не унесёт ни один молоток (до ±100, корень до 100-й степени).');
+  }
+  if ((op === 'round' || op === 'mod' || op === 'quot') && n.sign() <= 0) {
+    throw new Error('Разряд округления и размер ряда должны быть положительными.');
   }
   return {
     id: id ?? `tool-${op}-${n.num}_${n.den}`,
@@ -266,6 +413,11 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
           if (n.den === 1n) return powered;
           return rootExact(powered, n.den) ?? rootApprox(powered, n.den);
         }
+        // ближайшее кратное n; ровно посередине — вверх: floor(v/n + 1/2) · n
+        case 'round': return floorRational(v.div(n).add(Rational.of(1, 2))).mul(n);
+        // остаток и полные ряды: v = ряды·n + остаток, 0 ≤ остаток < n
+        case 'mod': return v.sub(floorRational(v.div(n)).mul(n));
+        case 'quot': return floorRational(v.div(n));
       }
     },
     inverseSpec() {
@@ -287,6 +439,10 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
           if (numAbs % 2n === 0n && n.den % 2n === 1n) return null;
           return { op: 'pow', n: powInt(n, -1n) };
         }
+        // огрубитель и остатки склеивают соседей — прошлое не восстановить
+        case 'round': return null;
+        case 'mod': return null;
+        case 'quot': return null;
       }
     },
   };
@@ -373,6 +529,9 @@ export function subtitleFor(before: Rational, tool: Tool, after: Rational): stri
     }
   }
   if (tool.op === 'pow') return `${b}${powSuffix(tool.n)} ${eq} ${a}`;
+  if (tool.op === 'round') return `${b} ≈ ${a} (до ${tool.n.toDisplay()})`;
+  if (tool.op === 'mod') return `${b}: остаток от ÷${tool.n.toDisplay()} = ${a}`;
+  if (tool.op === 'quot') return `${b}: полных рядов по ${tool.n.toDisplay()} = ${a}`;
   const n = tool.n.sign() < 0 ? `(${tool.n.toDisplay()})` : tool.n.toDisplay();
   return `${b} ${OP_SYMBOL[tool.op as BinaryOp]} ${n} = ${a}`;
 }

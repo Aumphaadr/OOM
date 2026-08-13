@@ -66,6 +66,11 @@ export class ConveyorScene implements Scene {
   private reverseBtn: HTMLButtonElement | null = null;
   private countLabel: HTMLElement | null = null;
 
+  /** Кольцо: выход подаётся обратно на вход (прогрессии, сложные проценты). */
+  private loop = false;
+  private loopLaps = 5;
+  private readonly lapsLeft = new Map<string, number>();
+
   /** Перетаскивание участка; до порога движения трактуется как клик. */
   private sectionDrag: { index: number; dx: number; startX: number; startY: number; moved: boolean } | null = null;
 
@@ -157,6 +162,7 @@ export class ConveyorScene implements Scene {
         this.rides.delete(e.objectId);
         this.shakes.delete(e.objectId);
         this.selection.delete(e.objectId);
+        this.lapsLeft.delete(e.objectId);
         this.launchQueue = this.launchQueue.filter((q) => q.id !== e.objectId);
       }
     });
@@ -185,6 +191,10 @@ export class ConveyorScene implements Scene {
         <button id="section-del" class="btn ghost">−</button>
       </div>
       <div class="series-row">
+        <label class="field tp-check" style="flex:2"><input type="checkbox" id="belt-loop" /> кольцо (выход → вход)</label>
+        <label class="field">кругов<input id="belt-laps" type="number" value="5" min="2" max="20" /></label>
+      </div>
+      <div class="series-row">
         <label class="field">старт<input id="series-start" value="1" /></label>
         <label class="field">шаг<input id="series-step" value="1" /></label>
         <label class="field">штук<input id="series-count" type="number" value="5" min="1" max="12" /></label>
@@ -202,6 +212,16 @@ export class ConveyorScene implements Scene {
       this.reversed = !this.reversed;
       this.updatePanel();
     });
+    const loopBox = root.querySelector<HTMLInputElement>('#belt-loop')!;
+    const lapsInput = root.querySelector<HTMLInputElement>('#belt-laps')!;
+    loopBox.addEventListener('change', () => { this.loop = loopBox.checked; });
+    lapsInput.addEventListener('change', () => {
+      const v = parseInt(lapsInput.value, 10);
+      if (Number.isFinite(v)) this.loopLaps = Math.max(2, Math.min(20, v));
+    });
+    loopBox.checked = this.loop;
+    lapsInput.value = String(this.loopLaps);
+
     root.querySelector<HTMLButtonElement>('#section-add')!.addEventListener('click', () => {
       if (this.sections.length >= SECTION_MAX) return;
       this.sections.push({ toolId: null, x: 0.5 });
@@ -469,6 +489,17 @@ export class ConveyorScene implements Scene {
         const obj = this.ctx.session.objects.get(id);
         obj?.scenePos.set(this.id, { ...ride.home });
         this.rides.delete(id);
+
+        // Кольцо: выход снова на вход, пока не выйдут круги (клин прерывает)
+        if (this.loop && !ride.jammed) {
+          const left = this.lapsLeft.get(id) ?? this.loopLaps;
+          if (left > 1) {
+            this.lapsLeft.set(id, left - 1);
+            this.launchQueue.push({ id, home: ride.home });
+          } else {
+            this.lapsLeft.delete(id);
+          }
+        }
       }
     }
   }

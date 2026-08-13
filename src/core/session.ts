@@ -1,8 +1,9 @@
 import { Rational } from './rational';
 import {
-  MathObject, NumberObject, TapeObject, UnknownObject, RectObject, Tool,
-  makeTool, makeCompositeTool, toolInvertsSticker, exprFor, toolLabel,
-  tapePieceLabels, tapeNumerator, rectPieceAreas, PrimitiveOp,
+  MathObject, NumberObject, TapeObject, UnknownObject, RectObject, EquationObject, Tool,
+  makeTool, makeCompositeTool, makeVarTool, toolInvertsSticker, exprFor, toolLabel,
+  tapePieceLabels, tapeNumerator, rectPieceAreas, unknownValue, isNeutralAction, PrimitiveOp, VarOp,
+  LinForm, linFormEval, linFormText,
 } from './model';
 
 /**
@@ -20,7 +21,8 @@ export type SessionEvent =
   | { kind: 'tool-rejected'; objectId: string; tool: Tool; reason: string }
   | { kind: 'tape-changed'; object: TapeObject; note: string }
   | { kind: 'tape-refused'; object: TapeObject; reason: string }
-  | { kind: 'scales-step'; object: UnknownObject; tool: Tool; snip: boolean; note: string }
+  | { kind: 'scales-step'; object: UnknownObject; tool: Tool; snip: boolean; side: 'left' | 'right'; neutral?: boolean; note: string }
+  | { kind: 'equation-step'; object: EquationObject; tool: Tool; side: 'left' | 'right'; neutral?: boolean; note: string }
   | { kind: 'var-set'; object: NumberObject; note: string }
   | { kind: 'rect-changed'; object: RectObject; note: string }
   | { kind: 'undo'; objectId: string; note: string };
@@ -38,11 +40,14 @@ interface UnknownState { ops: { op: PrimitiveOp; n: Rational }[]; rhs: Rational;
 
 interface RectState { w: Rational; h: Rational; cutsX: Rational[]; cutsY: Rational[] }
 
+interface EquationState { left: LinForm; right: LinForm; solved: boolean }
+
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
   | { objectId: string; kind: 'tape'; before: TapeState; after: TapeState }
   | { objectId: string; kind: 'unknown'; before: UnknownState; after: UnknownState }
-  | { objectId: string; kind: 'rect'; before: RectState; after: RectState };
+  | { objectId: string; kind: 'rect'; before: RectState; after: RectState }
+  | { objectId: string; kind: 'equation'; before: EquationState; after: EquationState };
 
 const TAPE_MODE_MIN = 1; // «/1» — целая лента без швов, резать нечего
 const TAPE_MODE_MAX = 100;
@@ -195,6 +200,7 @@ export class Session {
       : obj.kind === 'tape' ? `${this.tapeName(obj)} удалена`
       : obj.kind === 'unknown' ? `уравнение с «${obj.name}» убрано`
       : obj.kind === 'rect' ? `${obj.label} удалён`
+      : obj.kind === 'equation' ? `уравнение с «${obj.name}» снято с весов`
       : `число ${obj.value.toDisplay()} удалено`;
     this.objects.delete(id);
     this.emit({ kind: 'object-removed', objectId: id, note });
@@ -211,6 +217,14 @@ export class Session {
 
   addTool(op: PrimitiveOp, n: Rational): Tool {
     const tool = makeTool(op, n, nextId('tool'));
+    this.tools.set(tool.id, tool);
+    this.emit({ kind: 'tool-added', tool });
+    return tool;
+  }
+
+  /** Молоток «±x» (весы v2): применим только к уравнению. */
+  addVarTool(op: VarOp, n: Rational): Tool {
+    const tool = makeVarTool(op, n, nextId('tool'));
     this.tools.set(tool.id, tool);
     this.emit({ kind: 'tool-added', tool });
     return tool;
@@ -243,12 +257,52 @@ export class Session {
     const tool = this.tools.get(toolId);
     const obj = this.objects.get(objectId);
     if (!tool || !obj) return false;
+    if (obj.kind === 'rect') return this.scaleRect(obj, tool);
     if (obj.kind !== 'number') {
       // Сигнатура по типам: числовой молоток не бьёт по лентам
       this.emit({ kind: 'tool-rejected', objectId, tool, reason: 'этот инструмент бьёт только по числам' });
       return false;
     }
     return this.applyWith(tool, obj);
+  }
+
+  /**
+   * Молоток по фигуре: ×k и ÷k масштабируют ОБА размера (и резы) —
+   * стороны в k раз, площадь в k² (живое демо подобия). Остальные операции
+   * по фигурам отказывают: у прямоугольника нет «плюс пять».
+   */
+  private scaleRect(r: RectObject, tool: Tool): boolean {
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({ kind: 'tool-rejected', objectId: r.id, tool, reason: 'фигуры понимают только ×N и ÷N — масштаб' });
+      return false;
+    }
+    if (tool.n.sign() <= 0) {
+      this.emit({ kind: 'tool-rejected', objectId: r.id, tool, reason: 'масштаб фигуры должен быть положительным' });
+      return false;
+    }
+    const k = tool.op === 'mul' ? tool.n : Rational.of(tool.n.den, tool.n.num);
+    const nw = r.w.mul(k);
+    const nh = r.h.mul(k);
+    if (nw.compare(Rational.of(60)) > 0 || nh.compare(Rational.of(40)) > 0) {
+      this.emit({ kind: 'tool-rejected', objectId: r.id, tool, reason: 'такая фигура не поместится на поле' });
+      return false;
+    }
+    if (nw.compare(Rational.of(1, 4)) < 0) {
+      this.emit({ kind: 'tool-rejected', objectId: r.id, tool, reason: 'фигура сожмётся в невидимую точку' });
+      return false;
+    }
+    const before = this.rectState(r);
+    r.w = nw;
+    r.h = nh;
+    r.cutsX = r.cutsX.map((c) => c.mul(k));
+    r.cutsY = r.cutsY.map((c) => c.mul(k));
+    this.applyLog.push({ objectId: r.id, kind: 'rect', before, after: this.rectState(r) });
+    this.emit({
+      kind: 'rect-changed',
+      object: r,
+      note: `${r.label} ${tool.label}: стороны ×${k.toDisplay()}, площадь ×${k.mul(k).toDisplay()} — ${this.rectNote(r).split(': ')[1] ?? this.rectNote(r)}`,
+    });
+    return true;
   }
 
   /**
@@ -332,6 +386,7 @@ export class Session {
       showW: true,
       showH: true,
       showArea: true,
+      showPerimeter: false,
       scenePos: new Map(),
     };
     this.objects.set(obj.id, obj);
@@ -440,7 +495,11 @@ export class Session {
    * снимается верхняя наклейка (если инструмент — её точный обратный),
    * либо навешивается новая. Одна транзакция в журнале.
    */
-  scalesApply(unknownId: string, toolId: string): boolean {
+  /**
+   * Удар по ОДНОЙ чаше весов. Равновесие — работа ученика: тот же молоток
+   * надо приложить и ко второй чаше, иначе весы перекосит.
+   */
+  scalesApply(unknownId: string, toolId: string, side: 'left' | 'right'): boolean {
     const u = this.objects.get(unknownId);
     const tool = this.tools.get(toolId);
     if (!u || u.kind !== 'unknown' || !tool) return false;
@@ -449,32 +508,49 @@ export class Session {
     // снимать всё равно по одной
     if (tool.steps) {
       for (const s of tool.steps) {
-        if (!this.scalesStep(u, makeTool(s.op, s.n))) return false;
+        if (!this.scalesStep(u, makeTool(s.op, s.n), side)) return false;
       }
       return true;
     }
-    return this.scalesStep(u, tool);
+    return this.scalesStep(u, tool, side);
   }
 
-  private scalesStep(u: UnknownObject, tool: Tool): boolean {
+  private scalesStep(u: UnknownObject, tool: Tool, side: 'left' | 'right'): boolean {
     if (u.revealed) {
       this.emit({ kind: 'tool-rejected', objectId: u.id, tool, reason: 'уравнение решено — создай новое' });
       return false;
     }
-    const refusal = tool.canApply(u.rhs);
+    const target = side === 'left' ? unknownValue(u) : u.rhs;
+    const refusal = tool.canApply(target);
     if (refusal !== null) {
-      this.emit({ kind: 'tool-rejected', objectId: u.id, tool, reason: `к обеим чашам нельзя: ${refusal}` });
+      this.emit({ kind: 'tool-rejected', objectId: u.id, tool, reason: refusal });
       return false;
+    }
+    if (isNeutralAction(tool.op, tool.n)) {
+      // Нейтральный удар: наклейка не надевается, состояние и лог не трогаются
+      this.emit({
+        kind: 'scales-step', object: u, tool, snip: false, side, neutral: true,
+        note: `⚖ ${tool.label} — нейтральный удар: весы его даже не заметили`,
+      });
+      return true;
     }
 
     const before: UnknownState = { ops: [...u.ops], rhs: u.rhs, revealed: u.revealed };
-    const top = u.ops[u.ops.length - 1];
-    const snip = top !== undefined && toolInvertsSticker(tool, top);
+    let snip = false;
+    let snipped: { op: PrimitiveOp; n: Rational } | undefined;
 
-    u.rhs = tool.apply(u.rhs);
-    if (snip) u.ops.pop();
-    else u.ops.push({ op: tool.op as PrimitiveOp, n: tool.n }); // сюда попадают только примитивы
-    if (snip && u.ops.length === 0) u.revealed = true;
+    if (side === 'left') {
+      const top = u.ops[u.ops.length - 1];
+      snip = top !== undefined && toolInvertsSticker(tool, top);
+      if (snip) { snipped = top; u.ops.pop(); }
+      else u.ops.push({ op: tool.op as PrimitiveOp, n: tool.n }); // сюда попадают только примитивы
+    } else {
+      u.rhs = tool.apply(u.rhs);
+    }
+
+    // Решено = коробка голая И весы в равновесии
+    const balanced = unknownValue(u).equals(u.rhs);
+    if (u.ops.length === 0 && balanced) u.revealed = true;
 
     this.applyLog.push({
       objectId: u.id,
@@ -483,13 +559,118 @@ export class Session {
       after: { ops: [...u.ops], rhs: u.rhs, revealed: u.revealed },
     });
 
-    const state = `${exprFor(u)} = ${u.rhs.toDisplay()}`;
+    const state = `${exprFor(u)} ${balanced ? '=' : '≠'} ${u.rhs.toDisplay()}`;
+    const pan = side === 'left' ? 'левая чаша' : 'правая чаша';
     const note = u.revealed
       ? `🔓 коробка открыта: ${u.name} = ${u.secret.toDisplay()}, правая чаша ${u.rhs.toDisplay()} — сходится!`
       : snip
-        ? `⚖ наклейка ${toolLabel(top!.op, top!.n)} снята: ${state}`
-        : `⚖ обе чаши ${tool.label}: ${state}`;
-    this.emit({ kind: 'scales-step', object: u, tool, snip, note });
+        ? `⚖ наклейка ${toolLabel(snipped!.op, snipped!.n)} снята: ${state}${balanced ? '' : ' — правая ждёт того же'}`
+        : `⚖ ${pan} ${tool.label}: ${state}${balanced ? '' : ' — теперь та же операция по другой чаше'}`;
+    this.emit({ kind: 'scales-step', object: u, tool, snip, side, note });
+    return true;
+  }
+
+  // ---------- весы v2: уравнение с x на обеих чашах ----------
+
+  /**
+   * Уравнение ax + b = cx + d (docs/design-scales-v2.md). Инвариант: секрет
+   * обязан удовлетворять уравнению — противоречивые заготовки не существуют.
+   */
+  spawnEquation(name: string, secret: Rational, left: LinForm, right: LinForm): EquationObject {
+    if (!linFormEval(left, secret).equals(linFormEval(right, secret))) {
+      throw new Error(`Секрет ${secret.toDisplay()} не удовлетворяет уравнению — весы не встанут в равновесие.`);
+    }
+    const obj: EquationObject = {
+      kind: 'equation',
+      id: nextId('eq2'),
+      name,
+      secret,
+      left: { ...left },
+      right: { ...right },
+      solved: false,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    return obj;
+  }
+
+  /** Удар по ОДНОЙ чаше уравнения: равновесие держит ученик. */
+  equationApply(equationId: string, toolId: string, side: 'left' | 'right'): boolean {
+    const eq = this.objects.get(equationId);
+    const tool = this.tools.get(toolId);
+    if (!eq || eq.kind !== 'equation' || !tool) return false;
+
+    // Комбо раскладывается на шаги, как на весах v1
+    if (tool.steps) {
+      for (const st of tool.steps) {
+        if (!this.equationStep(eq, makeTool(st.op, st.n), side)) return false;
+      }
+      return true;
+    }
+    return this.equationStep(eq, tool, side);
+  }
+
+  private equationStep(eq: EquationObject, tool: Tool, side: 'left' | 'right'): boolean {
+    if (eq.solved) {
+      this.emit({ kind: 'tool-rejected', objectId: eq.id, tool, reason: 'уравнение уже решено' });
+      return false;
+    }
+    const n = tool.n;
+    const applyForm = (f: LinForm): LinForm | null => {
+      switch (tool.op) {
+        case 'add': return { k: f.k, b: f.b.add(n) };
+        case 'sub': return { k: f.k, b: f.b.sub(n) };
+        case 'mul': return { k: f.k.mul(n), b: f.b.mul(n) };
+        case 'div': return { k: f.k.div(n), b: f.b.div(n) }; // n ≠ 0 гарантирует кузница
+        case 'addx': return { k: f.k.add(n), b: f.b };
+        case 'subx': return { k: f.k.sub(n), b: f.b };
+        default: return null;
+      }
+    };
+    const hit = applyForm(side === 'left' ? eq.left : eq.right);
+    if (!hit) {
+      this.emit({ kind: 'tool-rejected', objectId: eq.id, tool, reason: 'по уравнению бьют только ±N, ×N, ÷N и ±x' });
+      return false;
+    }
+    if (isNeutralAction(tool.op, tool.n)) {
+      this.emit({
+        kind: 'equation-step', object: eq, tool, side, neutral: true,
+        note: `⚖ ${tool.label} — нейтральный удар: весы его даже не заметили`,
+      });
+      return true;
+    }
+
+    const before: EquationState = { left: { ...eq.left }, right: { ...eq.right }, solved: eq.solved };
+    if (side === 'left') eq.left = hit;
+    else eq.right = hit;
+
+    // Решено = форма «x = c» И честное равновесие (обе чаши равны при секрете)
+    const one = Rational.of(1);
+    const isX = (f: LinForm) => f.k.equals(one) && f.b.isZero();
+    const isConst = (f: LinForm) => f.k.isZero();
+    const balanced = linFormEval(eq.left, eq.secret).equals(linFormEval(eq.right, eq.secret));
+    if (balanced && ((isX(eq.left) && isConst(eq.right)) || (isConst(eq.left) && isX(eq.right)))) {
+      eq.solved = true;
+    }
+
+    this.applyLog.push({
+      objectId: eq.id,
+      kind: 'equation',
+      before,
+      after: { left: { ...eq.left }, right: { ...eq.right }, solved: eq.solved },
+    });
+
+    const burnedAll = eq.left.k.isZero() && eq.left.b.isZero() && eq.right.k.isZero() && eq.right.b.isZero();
+    const state = `${linFormText(eq.left, eq.name)} ${balanced ? '=' : '≠'} ${linFormText(eq.right, eq.name)}`;
+    const answer = isConst(eq.right) ? eq.right.b : eq.left.b;
+    const pan = side === 'left' ? 'левая чаша' : 'правая чаша';
+    const note = burnedAll
+      ? `⚖ ×0: уравнение сгорело — 0 = 0 верно для любого ${eq.name}. Информация потеряна`
+      : eq.solved
+        ? `🔓 решено: ${state} — ${eq.name} = ${answer.toDisplay()}`
+        : `⚖ ${pan} ${tool.label}: ${state}${balanced ? '' : ' — теперь тот же удар по другой чаше'}`;
+    this.emit({ kind: 'equation-step', object: eq, tool, side, note });
     return true;
   }
 
@@ -672,6 +853,17 @@ export class Session {
       obj.cutsX = [...last.before.cutsX];
       obj.cutsY = [...last.before.cutsY];
       this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.rectNote(obj)}` });
+      return true;
+    }
+    if (last.kind === 'equation' && obj.kind === 'equation') {
+      obj.left = { ...last.before.left };
+      obj.right = { ...last.before.right };
+      obj.solved = last.before.solved;
+      this.emit({
+        kind: 'undo',
+        objectId: obj.id,
+        note: `⟲ ${linFormText(obj.left, obj.name)} = ${linFormText(obj.right, obj.name)}`,
+      });
       return true;
     }
     if (last.kind === 'unknown' && obj.kind === 'unknown') {

@@ -1,6 +1,6 @@
 import { Rational } from './rational';
 import { Session } from './session';
-import { PrimitiveOp } from './model';
+import { PrimitiveOp, VarOp } from './model';
 
 /**
  * Сериализация доски (формат v1). Сохраняются объекты всех типов, инструменты
@@ -17,7 +17,7 @@ const rParse = (s: string): Rational => {
 export interface BoardJson {
   v: 1;
   tools: (
-    | { op: PrimitiveOp; n: string; hidden: boolean }
+    | { op: PrimitiveOp | VarOp; n: string; hidden: boolean }
     | { op: 'seq'; name: string; steps: { op: PrimitiveOp; n: string }[]; hidden: boolean }
   )[];
   objects: (
@@ -30,8 +30,10 @@ export interface BoardJson {
     | { kind: 'unknown'; name: string; secret: string; rhs: string; revealed: boolean;
         ops: { op: PrimitiveOp; n: string }[] }
     | { kind: 'rect'; label: string; w: string; h: string; cutsX: string[]; cutsY: string[];
-        showW?: boolean; showH?: boolean; showArea?: boolean;
+        showW?: boolean; showH?: boolean; showArea?: boolean; showPerimeter?: boolean;
         scenePos?: Record<string, { x: number; y: number }> }
+    | { kind: 'equation'; name: string; secret: string;
+        left: { k: string; b: string }; right: { k: string; b: string }; solved: boolean }
   )[];
 }
 
@@ -44,7 +46,7 @@ export function exportBoard(session: Session): string {
         steps: t.steps.map((s) => ({ op: s.op, n: rStr(s.n) })),
       });
     } else {
-      data.tools.push({ op: t.op as PrimitiveOp, n: rStr(t.n), hidden: t.hidden });
+      data.tools.push({ op: t.op as PrimitiveOp | VarOp, n: rStr(t.n), hidden: t.hidden });
     }
   }
   for (const o of session.objects.values()) {
@@ -73,8 +75,15 @@ export function exportBoard(session: Session): string {
       data.objects.push({
         kind: 'rect', label: o.label, w: rStr(o.w), h: rStr(o.h),
         cutsX: o.cutsX.map(rStr), cutsY: o.cutsY.map(rStr),
-        showW: o.showW, showH: o.showH, showArea: o.showArea,
+        showW: o.showW, showH: o.showH, showArea: o.showArea, showPerimeter: o.showPerimeter,
         scenePos: Object.fromEntries(o.scenePos),
+      });
+    } else if (o.kind === 'equation') {
+      data.objects.push({
+        kind: 'equation', name: o.name, secret: rStr(o.secret),
+        left: { k: rStr(o.left.k), b: rStr(o.left.b) },
+        right: { k: rStr(o.right.k), b: rStr(o.right.b) },
+        solved: o.solved,
       });
     } else {
       data.objects.push({
@@ -101,7 +110,9 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
     for (const t of data.tools) {
       const tool = t.op === 'seq'
         ? session.addComposite(t.steps.map((s) => ({ op: s.op, n: rParse(s.n) })), t.name)
-        : session.addTool(t.op, rParse(t.n));
+        : t.op === 'addx' || t.op === 'subx'
+          ? session.addVarTool(t.op, rParse(t.n))
+          : session.addTool(t.op, rParse(t.n));
       if (t.hidden) session.setToolHidden(tool.id, true);
     }
     for (const o of data.objects) {
@@ -138,9 +149,15 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         r.showW = o.showW ?? true;
         r.showH = o.showH ?? true;
         r.showArea = o.showArea ?? true;
+        r.showPerimeter = o.showPerimeter ?? false;
         for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
           r.scenePos.set(sceneId, pos);
         }
+      } else if (o.kind === 'equation') {
+        const eq = session.spawnEquation(o.name, rParse(o.secret),
+          { k: rParse(o.left.k), b: rParse(o.left.b) },
+          { k: rParse(o.right.k), b: rParse(o.right.b) });
+        eq.solved = o.solved;
       } else {
         const u = session.spawnUnknown(o.name, rParse(o.secret));
         u.ops = o.ops.map((s) => ({ op: s.op, n: rParse(s.n) }));

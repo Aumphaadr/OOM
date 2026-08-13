@@ -1,6 +1,7 @@
 import { Session } from '../core/session';
 import { BoardJson, importBoardData } from '../core/serialize';
 import { GoalSpec, checkGoal } from '../core/goal';
+import { Rational } from '../core/rational';
 import { icon } from './icons';
 import { recordDiagnosis } from './diagnoses';
 
@@ -80,6 +81,8 @@ export class Reader {
   private counterOf: number | null = null;
   /** Идёт importBoardData: события журнала не считаем и цели не проверяем. */
   private loading = false;
+  /** Пристрелка: «перелёт»/«недолёт» после хода мимо числовой цели. */
+  private aim: 'over' | 'under' | null = null;
   private steps = 0;
   private hintIndex = 0;
 
@@ -101,11 +104,13 @@ export class Reader {
     deps.session.on((e) => {
       if (!this.active || this.loading || this.phase === 'done' || this.phase === 'checkpoint') return;
       const counted =
-        e.kind === 'tool-applied' || e.kind === 'scales-step' ||
-        e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set';
+        (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
+          e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set') &&
+        !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral); // нейтральный удар — не ход
 
       if (this.phase === 'experiment') {
         if (counted) this.steps++;
+        this.updateAim(e, this.active.goal);
         if (checkGoal(deps.session, this.active.goal)) {
           if (this.active.checkpoint) {
             this.phase = 'checkpoint';
@@ -128,6 +133,7 @@ export class Reader {
           deps.say('💥 Молоток показал другое — вывод не подтвердился. Вернёмся к вопросу.');
         }
       } else if (this.phase === 'boundary') {
+        this.updateAim(e, this.active.boundary!.goal);
         if (checkGoal(deps.session, this.active.boundary!.goal)) {
           this.phase = 'done';
           deps.say(`🎉 Вывод пережил обстрел границ — задание «${this.active.id}» выполнено!`);
@@ -135,6 +141,26 @@ export class Reader {
       }
       this.renderPanel();
     });
+  }
+
+  /**
+   * Пристрелка: если цель — «получи число N», после удара честно докладываем
+   * сторону промаха. Молчание панели превращается в «перелёт»/«недолёт» —
+   * и любое числовое упражнение становится вилкой.
+   */
+  private updateAim(e: { kind: string }, goal: GoalSpec): void {
+    if (goal.kind !== 'any-object-value') return;
+    const target = Rational.parse(goal.value);
+    if (!target) return;
+    const ev = e as { kind: string; after?: Rational; object?: { kind: string; value?: Rational } };
+    const value = ev.kind === 'tool-applied'
+      ? ev.after
+      : ev.kind === 'var-set' && ev.object?.kind === 'number'
+        ? ev.object.value
+        : undefined;
+    if (!value) return;
+    const cmp = value.compare(target);
+    this.aim = cmp > 0 ? 'over' : cmp < 0 ? 'under' : null;
   }
 
   /** Загрузка доски посреди упражнения (контрпример, обстрел) без самосчёта цели. */
@@ -151,6 +177,7 @@ export class Reader {
     if (!spec || !cp || this.phase !== 'checkpoint' || this.broken.has(i)) return;
     const opt = cp.options[i]!;
 
+    this.aim = null;
     if (opt.correct) {
       if (spec.boundary) {
         this.phase = 'boundary';
@@ -248,6 +275,7 @@ export class Reader {
     this.phase = 'experiment';
     this.broken.clear();
     this.counterOf = null;
+    this.aim = null;
     this.steps = 0;
     this.hintIndex = 0;
     this.deps.setConstruct(spec.allowConstruct ?? false);
@@ -320,6 +348,14 @@ export class Reader {
       stepsEl.textContent = this.steps > 0 || this.active.maxSteps ? `ходы: ${this.steps}${limit}` : '';
     } else {
       stepsEl.textContent = '';
+    }
+
+    const aimEl = document.getElementById('task-aim')!;
+    if (done || this.aim === null) {
+      aimEl.hidden = true;
+    } else {
+      aimEl.hidden = false;
+      aimEl.textContent = this.aim === 'over' ? '↑ перелёт' : '↓ недолёт';
     }
     this.panel.classList.toggle('done', done);
   }

@@ -22,6 +22,7 @@ const DOM = `
   <div id="task-panel" class="task-panel" hidden>
     <span id="task-status"></span>
     <span id="task-steps"></span>
+    <span id="task-aim" hidden></span>
     <button id="task-hint"></button>
     <button id="task-reset"></button>
     <button id="task-close"></button>
@@ -153,6 +154,39 @@ describe('автомат чекпоинтов', () => {
     // после перезапуска доска снова стартовая, погашенных вариантов нет
     hammerAll(session);
     expect(options().every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('пристрелка: панель докладывает перелёт и недолёт для числовых целей', async () => {
+    const { session, reader } = setup();
+    const spec: ExerciseSpec = {
+      id: 'aim',
+      task: 'Получи 10',
+      scene: 'boxes',
+      board: {
+        v: 1,
+        tools: [
+          { op: 'add', n: '5/1', hidden: false },
+          { op: 'sub', n: '2/1', hidden: false },
+        ],
+        objects: [{ kind: 'number', trail: ['7/1'], scenePos: {} }],
+      } as ExerciseSpec['board'],
+      goal: { kind: 'any-object-value', value: '10' },
+    };
+    await (reader as unknown as { start(s: ExerciseSpec): Promise<void> }).start(spec);
+    const aim = document.getElementById('task-aim')!;
+    expect(aim.hidden).toBe(true); // до первого хода панель молчит
+
+    const obj = [...session.objects.values()][0]!;
+    const add5 = [...session.tools.values()].find((t) => t.op === 'add')!;
+    const sub2 = [...session.tools.values()].find((t) => t.op === 'sub')!;
+
+    session.applyTool(add5.id, obj.id); // 7 → 12
+    expect(aim.hidden).toBe(false);
+    expect(aim.textContent).toContain('перелёт');
+
+    session.applyTool(sub2.id, obj.id); // 12 → 10 — цель
+    expect(aim.hidden).toBe(true);      // при попадании индикатор гаснет
+    expect(panelDone()).toBe(true);
   });
 
   it('неудар (отказ инструмента) тоже гасит контрпример', async () => {
