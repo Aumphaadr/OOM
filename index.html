@@ -15,10 +15,18 @@
       <nav id="scene-tabs" class="scene-tabs"></nav>
       <div class="topbar-right">
         <button id="btn-reader" class="btn ghost" title="Учебник" data-icon="book"></button>
-        <button id="btn-export-ex" class="btn ghost" title="Скопировать доску как заготовку упражнения" data-icon="export"></button>
-        <select id="lesson-select" title="Загрузить урок-заготовку"></select>
-        <button id="btn-save" class="btn ghost" title="Сохранить доску" data-icon="save"></button>
-        <button id="btn-load" class="btn ghost" title="Загрузить сохранённую доску" data-icon="open"></button>
+        <div class="history-wrap">
+          <button id="btn-board" class="btn ghost" title="Доска: сохранить, загрузить, перенести" data-icon="save"></button>
+          <div id="board-menu" class="history-dropdown board-menu" hidden>
+            <button id="btn-save" class="menu-item">💾 Сохранить в браузере</button>
+            <button id="btn-load" class="menu-item">📂 Загрузить сохранённую</button>
+            <hr />
+            <button id="btn-file-save" class="menu-item">⤓ Скачать файлом</button>
+            <button id="btn-file-load" class="menu-item">⤒ Загрузить из файла</button>
+            <hr />
+            <button id="btn-export-ex" class="menu-item">📤 Заготовка упражнения — в буфер</button>
+          </div>
+        </div>
         <div class="history-wrap">
           <button id="btn-history" class="btn ghost" title="История" data-icon="history"></button>
           <div id="history-dropdown" class="history-dropdown" hidden>

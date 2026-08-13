@@ -34,6 +34,12 @@ export interface BoardJson {
         scenePos?: Record<string, { x: number; y: number }> }
     | { kind: 'equation'; name: string; secret: string;
         left: { k: string; b: string }; right: { k: string; b: string }; solved: boolean }
+    | { kind: 'point'; x: string; y: string }
+    | { kind: 'vector'; dx: string; dy: string; scenePos?: Record<string, { x: number; y: number }> }
+    | { kind: 'cuboid'; w: string; d: string; h: string;
+        showW?: boolean; showD?: boolean; showH?: boolean; showVolume?: boolean;
+        scenePos?: Record<string, { x: number; y: number }> }
+    | { kind: 'angle'; deg: string }
   )[];
 }
 
@@ -84,6 +90,21 @@ export function exportBoard(session: Session): string {
         left: { k: rStr(o.left.k), b: rStr(o.left.b) },
         right: { k: rStr(o.right.k), b: rStr(o.right.b) },
         solved: o.solved,
+      });
+    } else if (o.kind === 'point') {
+      data.objects.push({ kind: 'point', x: rStr(o.x), y: rStr(o.y) });
+    } else if (o.kind === 'angle') {
+      data.objects.push({ kind: 'angle', deg: rStr(o.deg) });
+    } else if (o.kind === 'vector') {
+      data.objects.push({
+        kind: 'vector', dx: rStr(o.dx), dy: rStr(o.dy),
+        scenePos: Object.fromEntries(o.scenePos.entries()),
+      });
+    } else if (o.kind === 'cuboid') {
+      data.objects.push({
+        kind: 'cuboid', w: rStr(o.w), d: rStr(o.d), h: rStr(o.h),
+        showW: o.showW, showD: o.showD, showH: o.showH, showVolume: o.showVolume,
+        scenePos: Object.fromEntries(o.scenePos.entries()),
       });
     } else {
       data.objects.push({
@@ -158,6 +179,24 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
           { k: rParse(o.left.k), b: rParse(o.left.b) },
           { k: rParse(o.right.k), b: rParse(o.right.b) });
         eq.solved = o.solved;
+      } else if (o.kind === 'point') {
+        session.spawnPoint(rParse(o.x), rParse(o.y));
+      } else if (o.kind === 'angle') {
+        session.spawnAngle(rParse(o.deg));
+      } else if (o.kind === 'vector') {
+        const v = session.spawnVector(rParse(o.dx), rParse(o.dy));
+        for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
+          v.scenePos.set(sceneId, pos);
+        }
+      } else if (o.kind === 'cuboid') {
+        const c = session.spawnCuboid(rParse(o.w), rParse(o.d), rParse(o.h));
+        c.showW = o.showW ?? true;
+        c.showD = o.showD ?? true;
+        c.showH = o.showH ?? true;
+        c.showVolume = o.showVolume ?? false;
+        for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
+          c.scenePos.set(sceneId, pos);
+        }
       } else {
         const u = session.spawnUnknown(o.name, rParse(o.secret));
         u.ops = o.ops.map((s) => ({ op: s.op, n: rParse(s.n) }));
@@ -165,9 +204,11 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         u.revealed = o.revealed;
       }
     }
+    session.resetHistory(); // импорт — не ходы: отменять нечего
     return true;
   } catch {
     session.clearAll();
+    session.resetHistory();
     return false;
   }
 }

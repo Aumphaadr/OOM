@@ -4,7 +4,6 @@ import { subtitleFor, visibleLabel, isUnaryOp, toolLabel, PrimitiveOp, VarOp } f
 import { exportBoard, importBoard } from '../core/serialize';
 import { CanvasHost } from '../render/canvasHost';
 import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
-import { LessonSpec, loadLesson } from '../lessons/lesson';
 import { Reader } from './reader';
 import { icon } from './icons';
 import { diagnosisSummary, diagnosisReport, clearDiagnoses } from './diagnoses';
@@ -34,7 +33,6 @@ export class Shell {
     private readonly session: Session,
     private readonly host: CanvasHost,
     private readonly scenes: Scene[],
-    private readonly presets: LessonSpec[] = [],
   ) {
     this.sceneCtx = {
       session,
@@ -345,26 +343,16 @@ export class Shell {
   // ---------- уроки и сохранения ----------
 
   private bindLessons(): void {
-    const select = document.getElementById('lesson-select') as HTMLSelectElement;
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Уроки…';
-    select.appendChild(placeholder);
-    for (const p of this.presets) {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.title;
-      select.appendChild(opt);
-    }
-    select.addEventListener('change', () => {
-      const spec = this.presets.find((p) => p.id === select.value);
-      select.value = '';
-      if (!spec) return;
-      if (!window.confirm(`Загрузить урок «${spec.title}»? Текущая доска будет очищена.`)) return;
-      this.reader?.abandon();
-      loadLesson(this.session, spec);
-      if (spec.scene) this.switchScene(spec.scene);
-      this.say(`📚 Урок «${spec.title}» загружен`);
+    // Меню «Доска»: одна кнопка в шапке, действия — внутри
+    const boardBtn = document.getElementById('btn-board')!;
+    const boardMenu = document.getElementById('board-menu')!;
+    boardBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      boardMenu.hidden = !boardMenu.hidden;
+    });
+    boardMenu.addEventListener('click', () => { boardMenu.hidden = true; }); // выбор пункта закрывает
+    document.addEventListener('click', (ev) => {
+      if (!boardMenu.hidden && !boardMenu.contains(ev.target as Node)) boardMenu.hidden = true;
     });
 
     document.getElementById('btn-save')!.addEventListener('click', () => {
@@ -377,6 +365,32 @@ export class Shell {
       if (!window.confirm('Загрузить сохранённую доску? Текущая будет очищена.')) return;
       this.reader?.abandon();
       this.say(importBoard(this.session, json) ? '📂 Доска загружена' : 'Не получилось прочитать сохранение.');
+    });
+
+    // Перенос доски между компьютерами: скачать/загрузить JSON-файлом
+    document.getElementById('btn-file-save')!.addEventListener('click', () => {
+      const blob = new Blob([exportBoard(this.session)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'oom-board.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      this.say('⤓ Доска скачана файлом');
+    });
+    document.getElementById('btn-file-load')!.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        void file.text().then((json) => {
+          if (!window.confirm('Загрузить доску из файла? Текущая будет очищена.')) return;
+          this.reader?.abandon();
+          this.say(importBoard(this.session, json) ? '⤒ Доска загружена из файла' : 'Не получилось прочитать файл.');
+        });
+      });
+      input.click();
     });
   }
 
@@ -415,7 +429,8 @@ export class Shell {
         this.say(e.note);
       } else if (e.kind === 'var-set') {
         this.say(e.note, true);
-      } else if (e.kind === 'rect-changed') {
+      } else if (e.kind === 'rect-changed' || e.kind === 'point-moved' || e.kind === 'vector-changed' ||
+                 e.kind === 'cuboid-changed' || e.kind === 'transfer' || e.kind === 'angle-set') {
         this.say(e.note);
       } else if (e.kind === 'tape-refused') {
         this.say(`${e.object.label} отказалась: ${e.reason}`);

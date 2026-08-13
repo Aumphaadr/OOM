@@ -1,0 +1,54 @@
+{
+  "id": "st-02",
+  "task": "⭐ Набор 7, 3, 5, 1. Переливай, пока ВСЕ столбики не сравняются. На какой высоте они встретятся?",
+  "scene": "stats",
+  "goal": { "kind": "values-equal", "value": "4" },
+  "maxSteps": 8,
+  "hints": ["Отливай из высоких в низкие: у 7 лишнее, у 1 недостача.", "Включи галку «линия среднего» — столбики лягут ровно на неё."],
+  "board": {
+    "v": 1,
+    "tools": [],
+    "objects": [
+      { "kind": "number", "trail": ["7/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["3/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["5/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["1/1"], "scenePos": {} }
+    ]
+  },
+  "checkpoint": {
+    "question": "Все сравнялись на высоте 4. Что это за число?",
+    "options": [
+      {
+        "text": "Середина между наименьшим и наибольшим: (1 + 7) ÷ 2 = 4",
+        "diagnosis": "считает среднее по двум крайним, игнорируя остальной набор",
+        "counter": {
+          "prompt": "Проверь на наборе 2, 2, 2, 2, 7: середина крайних — 4,5. Переливай и смотри, где сравняются на самом деле.",
+          "board": { "v": 1, "tools": [], "objects": [
+            { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+            { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+            { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+            { "kind": "number", "trail": ["2/1"], "scenePos": {} },
+            { "kind": "number", "trail": ["7/1"], "scenePos": {} }
+          ] },
+          "goal": { "kind": "values-equal", "value": "3" }
+        }
+      },
+      {
+        "text": "Среднее: вся сумма 16, разлитая поровну на 4 столбика — 16 ÷ 4. Переливание и есть «поровну»",
+        "correct": true
+      },
+      {
+        "text": "Самая частая высота исходного набора",
+        "diagnosis": "путает среднее с модой"
+      }
+    ]
+  },
+  "boundary": {
+    "prompt": "Обстрел: столбик-должник. Сравняй набор 5 и −1 — среднее работает и с минусами.",
+    "board": { "v": 1, "tools": [], "objects": [
+      { "kind": "number", "trail": ["5/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["-1/1"], "scenePos": {} }
+    ] },
+    "goal": { "kind": "values-equal", "value": "2" }
+  }
+}

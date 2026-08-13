@@ -16,6 +16,16 @@
       "file": "chapters/mul-neg.html"
     },
     {
+      "id": "rounding",
+      "title": "Округление и пристрелка",
+      "file": "chapters/rounding.html"
+    },
+    {
+      "id": "remainders",
+      "title": "Деление с остатком",
+      "file": "chapters/remainders.html"
+    },
+    {
       "id": "fraction-tapes",
       "title": "Дроби: ленточки",
       "file": "chapters/fraction-tapes.html"
@@ -56,6 +66,76 @@
       "file": "chapters/variable-slider.html"
     },
     {
+      "id": "plane-address",
+      "title": "Плоскость: адреса точек",
+      "file": "chapters/plane-address.html"
+    },
+    {
+      "id": "plane-traces",
+      "title": "Плоскость: следы инструментов",
+      "file": "chapters/plane-traces.html"
+    },
+    {
+      "id": "plane-roots",
+      "title": "Плоскость: проколы и корни",
+      "file": "chapters/plane-roots.html"
+    },
+    {
+      "id": "plane-compare",
+      "title": "Плоскость: выше или ниже",
+      "file": "chapters/plane-compare.html"
+    },
+    {
+      "id": "plane-meet",
+      "title": "Плоскость: точка встречи",
+      "file": "chapters/plane-meet.html"
+    },
+    {
+      "id": "plane-vectors",
+      "title": "Плоскость: стрелки-команды",
+      "file": "chapters/plane-vectors.html"
+    },
+    {
+      "id": "plane-translate",
+      "title": "Плоскость: перенос командой",
+      "file": "chapters/plane-translate.html"
+    },
+    {
+      "id": "plane-motions",
+      "title": "Плоскость: зеркала и растяжения",
+      "file": "chapters/plane-motions.html"
+    },
+    {
+      "id": "plane-slope",
+      "title": "Плоскость: крутизна",
+      "file": "chapters/plane-slope.html"
+    },
+    {
+      "id": "plane-cells",
+      "title": "Плоскость: клетки под следом",
+      "file": "chapters/plane-cells.html"
+    },
+    {
+      "id": "stats-basics",
+      "title": "Столбики: набор чисел",
+      "file": "chapters/stats-basics.html"
+    },
+    {
+      "id": "circle-basics",
+      "title": "Окружность: дом всех углов",
+      "file": "chapters/circle-basics.html"
+    },
+    {
+      "id": "circle-wave",
+      "title": "Окружность: волна",
+      "file": "chapters/circle-wave.html"
+    },
+    {
+      "id": "circle-radians",
+      "title": "Окружность: вторая линейка",
+      "file": "chapters/circle-radians.html"
+    },
+    {
       "id": "functions",
       "title": "Функция-машина",
       "file": "chapters/functions.html"
@@ -91,6 +171,16 @@
       "file": "chapters/area-basics.html"
     },
     {
+      "id": "space-volumes",
+      "title": "Объёмы: этажи из кубиков",
+      "file": "chapters/space-volumes.html"
+    },
+    {
+      "id": "space-sections",
+      "title": "Объёмы: томограф",
+      "file": "chapters/space-sections.html"
+    },
+    {
       "id": "area-brackets",
       "title": "Скобки на клетчатой бумаге",
       "file": "chapters/area-brackets.html"
@@ -99,6 +189,11 @@
       "id": "area-square",
       "title": "Квадрат суммы",
       "file": "chapters/area-square.html"
+    },
+    {
+      "id": "similarity",
+      "title": "Подобие: сюрприз k²",
+      "file": "chapters/similarity.html"
     },
     {
       "id": "percents",
@@ -119,6 +214,11 @@
       "id": "equations-2",
       "title": "Уравнения-2: x с обеих сторон",
       "file": "chapters/equations-2.html"
+    },
+    {
+      "id": "progressions",
+      "title": "Прогрессии: конвейер-кольцо",
+      "file": "chapters/progressions.html"
     }
   ]
 }

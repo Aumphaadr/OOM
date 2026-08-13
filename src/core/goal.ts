@@ -1,6 +1,6 @@
 import { Rational } from './rational';
 import { Session } from './session';
-import { tapePieceLabels, rectPieceAreas, rectPerimeter, linFormText } from './model';
+import { tapePieceLabels, rectPieceAreas, rectPerimeter, linFormText, degMod360 } from './model';
 
 /**
  * Цель упражнения — декларативный предикат над состоянием сессии.
@@ -15,6 +15,15 @@ export type GoalSpec =
   | { kind: 'rect-pieces'; areas: string[] }                      // площади кусков (снизу-слева направо)
   | { kind: 'rect-size'; w: string; h: string }                   // фигура доведена до размеров
   | { kind: 'rect-perimeter'; value: string }                     // периметр («забор») равен N
+  | { kind: 'point-at'; x: string; y: string }                    // точка стоит по адресу (x; y)
+  | { kind: 'points-at'; points: { x: string; y: string }[] }     // каждый адрес занят точкой
+  | { kind: 'vector-at'; dx: string; dy: string }                 // есть стрелка с командой (dx; dy)
+  | { kind: 'vectors-at'; vectors: { dx: string; dy: string }[] } // каждая команда представлена стрелкой
+  | { kind: 'values-equal'; value: string }                       // ВСЕ числа доски сравнялись на N
+  | { kind: 'angle-at'; deg: string; anyTurn?: boolean }          // угол доведён до N° (anyTurn — с точностью до оборотов)
+  | { kind: 'angles-at'; degs: string[]; anyTurn?: boolean }      // каждый из перечисленных углов представлен
+  | { kind: 'cuboid-size'; w: string; d: string; h: string }      // тело доведено до размеров
+  | { kind: 'cuboids-size'; sizes: { w: string; d: string; h: string }[] } // каждый размер представлен телом
   | { kind: 'equation-solved' }                                   // весы v2: достигнута форма x = c
   | { kind: 'equation-form'; left: string; right: string };       // весы v2: промежуточная форма
 
@@ -23,6 +32,83 @@ export function checkGoal(session: Session, goal: GoalSpec): boolean {
   switch (goal.kind) {
     case 'unknown-revealed':
       return objects.some((o) => o.kind === 'unknown' && o.revealed);
+
+    case 'point-at': {
+      const x = Rational.parse(goal.x);
+      const y = Rational.parse(goal.y);
+      if (!x || !y) return false;
+      return objects.some((o) => o.kind === 'point' && o.x.equals(x) && o.y.equals(y));
+    }
+
+    case 'points-at': {
+      return goal.points.every((a) => {
+        const x = Rational.parse(a.x);
+        const y = Rational.parse(a.y);
+        if (!x || !y) return false;
+        return objects.some((o) => o.kind === 'point' && o.x.equals(x) && o.y.equals(y));
+      });
+    }
+
+    case 'vector-at': {
+      const dx = Rational.parse(goal.dx);
+      const dy = Rational.parse(goal.dy);
+      if (!dx || !dy) return false;
+      return objects.some((o) => o.kind === 'vector' && o.dx.equals(dx) && o.dy.equals(dy));
+    }
+
+    case 'vectors-at': {
+      return goal.vectors.every((c) => {
+        const dx = Rational.parse(c.dx);
+        const dy = Rational.parse(c.dy);
+        if (!dx || !dy) return false;
+        return objects.some((o) => o.kind === 'vector' && o.dx.equals(dx) && o.dy.equals(dy));
+      });
+    }
+
+    case 'angle-at': {
+      const target = Rational.parse(goal.deg);
+      if (!target) return false;
+      return objects.some((o) => {
+        if (o.kind !== 'angle') return false;
+        return goal.anyTurn ? degMod360(o.deg).equals(degMod360(target)) : o.deg.equals(target);
+      });
+    }
+
+    case 'angles-at': {
+      return goal.degs.every((d) => {
+        const target = Rational.parse(d);
+        if (!target) return false;
+        return objects.some((o) => {
+          if (o.kind !== 'angle') return false;
+          return goal.anyTurn ? degMod360(o.deg).equals(degMod360(target)) : o.deg.equals(target);
+        });
+      });
+    }
+
+    case 'values-equal': {
+      const target = Rational.parse(goal.value);
+      if (!target) return false;
+      const nums = objects.filter((o) => o.kind === 'number');
+      return nums.length > 0 && nums.every((o) => o.value.equals(target));
+    }
+
+    case 'cuboid-size': {
+      const w = Rational.parse(goal.w);
+      const d = Rational.parse(goal.d);
+      const h = Rational.parse(goal.h);
+      if (!w || !d || !h) return false;
+      return objects.some((o) => o.kind === 'cuboid' && o.w.equals(w) && o.d.equals(d) && o.h.equals(h));
+    }
+
+    case 'cuboids-size': {
+      return goal.sizes.every((sz) => {
+        const w = Rational.parse(sz.w);
+        const d = Rational.parse(sz.d);
+        const h = Rational.parse(sz.h);
+        if (!w || !d || !h) return false;
+        return objects.some((o) => o.kind === 'cuboid' && o.w.equals(w) && o.d.equals(d) && o.h.equals(h));
+      });
+    }
 
     case 'equation-solved':
       return objects.some((o) => o.kind === 'equation' && o.solved);

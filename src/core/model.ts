@@ -192,7 +192,116 @@ export function parseLinForm(text: string, name = 'x'): LinForm | null {
   return { k, b };
 }
 
-export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject;
+/**
+ * Точка на координатной плоскости (сцена «Плоскость», docs/design-plane.md).
+ * Адрес (x; y) — это и есть данные: scenePos не используется, позиция точна.
+ */
+export interface PointObject extends ObjectBase {
+  kind: 'point';
+  readonly label: string; // Т1, Т2…
+  x: Rational;
+  y: Rational;
+}
+
+/**
+ * Стрелка-вектор (серия 42): команда «сколько вбок и сколько вверх» БЕЗ места.
+ * Данные — только (dx; dy); где нарисован хвост — презентация (scenePos сцены),
+ * та же команда может стоять где угодно.
+ */
+export interface VectorObject extends ObjectBase {
+  kind: 'vector';
+  readonly label: string; // В1, В2…
+  dx: Rational;
+  dy: Rational;
+}
+
+/**
+ * Кубоид (сцена «Объёмы», docs/design-space.md): третья ступень экструзии.
+ * d = h = 0 — отрезок, h = 0 — площадка: нулевой размер честно значит
+ * «этого измерения ещё нет». Размеры — целые клетки: кубики не половинятся.
+ */
+export interface CuboidObject extends ObjectBase {
+  kind: 'cuboid';
+  readonly label: string; // К1, К2…
+  w: Rational;
+  d: Rational;
+  h: Rational;
+  showW: boolean;
+  showD: boolean;
+  showH: boolean;
+  showVolume: boolean;
+}
+
+/** Объём в кубиках: (этаж w·d) · этажей h. */
+export function cuboidVolume(c: CuboidObject): Rational {
+  return c.w.mul(c.d).mul(c.h);
+}
+
+/** Сколько измерений у тела живо: 1 — отрезок, 2 — площадка, 3 — кубоид. */
+export function cuboidDims(c: CuboidObject): 1 | 2 | 3 {
+  if (!c.h.isZero()) return 3;
+  if (!c.d.isZero()) return 2;
+  return 1;
+}
+
+/**
+ * Угол на единичной окружности (серии 41/54): раствор поворота в градусах.
+ * Rational может быть любым — намотка честная: 370° показывает туда же,
+ * куда 10°, но пройденный путь другой. Высота (синус) и тень (косинус) —
+ * производные значения по ≈-политике корней.
+ */
+export interface AngleObject extends ObjectBase {
+  kind: 'angle';
+  readonly label: string; // α1, α2…
+  deg: Rational;
+}
+
+/** Угол, приведённый к [0°; 360°) — «место на окружности». */
+export function degMod360(deg: Rational): Rational {
+  const full = Rational.of(360);
+  return deg.sub(floorRational(deg.div(full)).mul(full));
+}
+
+const SIN_EXACT: Record<number, [number, number]> = {
+  0: [0, 1], 30: [1, 2], 90: [1, 1], 150: [1, 2],
+  180: [0, 1], 210: [-1, 2], 270: [-1, 1], 330: [-1, 2],
+};
+
+/**
+ * Высота точки на единичной окружности. Табличные углы (кратные 30°,
+ * где синус рационален) — точно; прочие — приближение до 3 знаков с «≈».
+ */
+export function sinDeg(deg: Rational): { v: Rational; exact: boolean } {
+  const m = degMod360(deg);
+  if (m.isInteger()) {
+    const key = Number(m.num);
+    const hit = SIN_EXACT[key];
+    if (hit) return { v: Rational.of(hit[0], hit[1]), exact: true };
+  }
+  const approx = Math.sin((m.toNumber() * Math.PI) / 180);
+  return { v: Rational.of(Math.round(approx * 1000), 1000), exact: false };
+}
+
+/** Тень точки на полу: cos d = sin(90° − d). */
+export function cosDeg(deg: Rational): { v: Rational; exact: boolean } {
+  return sinDeg(Rational.of(90).sub(deg));
+}
+
+/**
+ * Радианная запись угла — вторая линейка, чистое переодевание: deg/180
+ * долей π, ТОЧНОЙ дробью («π/6», «2π», «−3π/2»). π не вычисляется —
+ * он остаётся именем, как гравировка на запаянной коробке.
+ */
+export function radText(deg: Rational): string {
+  const k = deg.div(Rational.of(180));
+  if (k.isZero()) return '0';
+  const neg = k.num < 0n;
+  const a = neg ? -k.num : k.num;
+  const numTxt = a === 1n ? 'π' : `${a}π`;
+  return `${neg ? '−' : ''}${numTxt}${k.den === 1n ? '' : `/${k.den}`}`;
+}
+
+export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject | PointObject | VectorObject | CuboidObject | AngleObject;
 
 /** Значение левой чаши: секрет, прогнанный через стопку наклеек. */
 export function unknownValue(u: UnknownObject): Rational {
