@@ -45,7 +45,7 @@ describe('приложение', () => {
 
     // шесть вкладок сцен; каждая переключается без падений
     const tabs = [...document.querySelectorAll<HTMLButtonElement>('#scene-tabs button')];
-    expect(tabs.length).toBe(6);
+    expect(tabs.length).toBe(10);
     for (const tab of tabs) tab.click();
 
     // кузница: молоток с дробным модификатором из текстового поля
@@ -75,7 +75,7 @@ describe('приложение', () => {
     document.getElementById('btn-reader')!.click();
     await new Promise((r) => setTimeout(r, 0));
     const links = [...document.querySelectorAll<HTMLButtonElement>('.chapter-link')];
-    expect(links.length).toBe(24);
+    expect(links.length).toBe(44);
 
     links[0]!.click();
     await new Promise((r) => setTimeout(r, 0));

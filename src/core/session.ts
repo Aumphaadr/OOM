@@ -1,7 +1,8 @@
-import { Rational } from './rational';
+import { Rational, floorRational } from './rational';
 import {
-  MathObject, NumberObject, TapeObject, UnknownObject, RectObject, EquationObject, Tool,
-  makeTool, makeCompositeTool, makeVarTool, toolInvertsSticker, exprFor, toolLabel,
+  MathObject, NumberObject, TapeObject, UnknownObject, RectObject, EquationObject, PointObject, VectorObject,
+  CuboidObject, cuboidVolume, cuboidDims, AngleObject, sinDeg, degMod360, Tool,
+  makeTool, makeCompositeTool, makeVarTool, toolInvertsSticker, exprFor, toolLabel, subtitleFor,
   tapePieceLabels, tapeNumerator, rectPieceAreas, unknownValue, isNeutralAction, PrimitiveOp, VarOp,
   LinForm, linFormEval, linFormText,
 } from './model';
@@ -25,6 +26,11 @@ export type SessionEvent =
   | { kind: 'equation-step'; object: EquationObject; tool: Tool; side: 'left' | 'right'; neutral?: boolean; note: string }
   | { kind: 'var-set'; object: NumberObject; note: string }
   | { kind: 'rect-changed'; object: RectObject; note: string }
+  | { kind: 'point-moved'; object: PointObject; note: string }
+  | { kind: 'vector-changed'; object: VectorObject; note: string }
+  | { kind: 'cuboid-changed'; object: CuboidObject; note: string }
+  | { kind: 'transfer'; from: NumberObject; to: NumberObject; note: string }
+  | { kind: 'angle-set'; object: AngleObject; note: string }
   | { kind: 'undo'; objectId: string; note: string };
 
 export type SessionListener = (e: SessionEvent) => void;
@@ -42,12 +48,27 @@ interface RectState { w: Rational; h: Rational; cutsX: Rational[]; cutsY: Ration
 
 interface EquationState { left: LinForm; right: LinForm; solved: boolean }
 
+interface PointState { x: Rational; y: Rational }
+
+interface VectorState { dx: Rational; dy: Rational }
+
+interface CuboidState { w: Rational; d: Rational; h: Rational }
+
+interface AngleState { deg: Rational }
+
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
   | { objectId: string; kind: 'tape'; before: TapeState; after: TapeState }
   | { objectId: string; kind: 'unknown'; before: UnknownState; after: UnknownState }
   | { objectId: string; kind: 'rect'; before: RectState; after: RectState }
-  | { objectId: string; kind: 'equation'; before: EquationState; after: EquationState };
+  | { objectId: string; kind: 'equation'; before: EquationState; after: EquationState }
+  | { objectId: string; kind: 'point'; before: PointState; after: PointState }
+  | { objectId: string; kind: 'vector'; before: VectorState; after: VectorState }
+  | { objectId: string; kind: 'cuboid'; before: CuboidState; after: CuboidState }
+  | { objectId: string; kind: 'spawn' }
+  | { objectId: string; kind: 'removal'; object: MathObject }
+  | { kind: 'transfer'; fromId: string; toId: string; amount: Rational }
+  | { objectId: string; kind: 'angle'; before: AngleState; after: AngleState };
 
 const TAPE_MODE_MIN = 1; // «/1» — целая лента без швов, резать нечего
 const TAPE_MODE_MAX = 100;
@@ -84,6 +105,7 @@ export class Session {
     };
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
     return obj;
   }
 
@@ -174,6 +196,7 @@ export class Session {
     };
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
     return obj;
   }
 
@@ -190,6 +213,7 @@ export class Session {
     };
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
     return obj;
   }
 
@@ -201,9 +225,19 @@ export class Session {
       : obj.kind === 'unknown' ? `уравнение с «${obj.name}» убрано`
       : obj.kind === 'rect' ? `${obj.label} удалён`
       : obj.kind === 'equation' ? `уравнение с «${obj.name}» снято с весов`
+      : obj.kind === 'point' ? `точка ${obj.label} снята с плоскости`
+      : obj.kind === 'vector' ? `стрелка ${obj.label} убрана`
+      : obj.kind === 'cuboid' ? `тело ${obj.label} убрано`
+      : obj.kind === 'angle' ? `угол ${obj.label} снят с окружности`
       : `число ${obj.value.toDisplay()} удалено`;
+    if (!quiet) this.applyLog.push({ objectId: id, kind: 'removal', object: obj });
     this.objects.delete(id);
     this.emit({ kind: 'object-removed', objectId: id, note });
+  }
+
+  /** Сброс истории отмен: свежезагруженная доска начинает с чистого листа. */
+  resetHistory(): void {
+    this.applyLog.length = 0;
   }
 
   /** Полная очистка доски (для загрузки урока/сохранения): события тихие. */
@@ -258,6 +292,8 @@ export class Session {
     const obj = this.objects.get(objectId);
     if (!tool || !obj) return false;
     if (obj.kind === 'rect') return this.scaleRect(obj, tool);
+    if (obj.kind === 'cuboid') return this.scaleCuboid(obj, tool);
+    if (obj.kind === 'angle') return this.angleApplyTool(obj, tool);
     if (obj.kind !== 'number') {
       // Сигнатура по типам: числовой молоток не бьёт по лентам
       this.emit({ kind: 'tool-rejected', objectId, tool, reason: 'этот инструмент бьёт только по числам' });
@@ -391,6 +427,7 @@ export class Session {
     };
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
     return obj;
   }
 
@@ -570,6 +607,489 @@ export class Session {
     return true;
   }
 
+  // ---------- точки на плоскости ----------
+
+  private pointCounter = 0;
+
+  spawnPoint(x: Rational, y: Rational): PointObject {
+    const obj: PointObject = {
+      kind: 'point',
+      id: nextId('pt'),
+      label: `Т${++this.pointCounter}`,
+      x,
+      y,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  private readonly pointDragBase = new Map<string, PointState>();
+
+  /**
+   * Перенос точки: транзиент во время перетаскивания, одна запись в журнал
+   * на коммит (как у ползунка переменной и кромок фигур).
+   */
+  setPointPos(objectId: string, x: Rational, y: Rational, commit = true): boolean {
+    const pt = this.objects.get(objectId);
+    if (!pt || pt.kind !== 'point') return false;
+    if (!this.pointDragBase.has(objectId)) this.pointDragBase.set(objectId, { x: pt.x, y: pt.y });
+
+    pt.x = x;
+    pt.y = y;
+    if (!commit) return true;
+
+    const before = this.pointDragBase.get(objectId)!;
+    this.pointDragBase.delete(objectId);
+    if (before.x.equals(pt.x) && before.y.equals(pt.y)) return true; // вернулась на место — не ход
+
+    this.applyLog.push({ objectId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `📍 ${pt.label} → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+    });
+    return true;
+  }
+
+  /**
+   * Перенос точки командой-стрелкой (жест «прицепи хвост к месту», серия 35):
+   * точка проходит путь (dx; dy) и оказывается на носу стрелки. Команда
+   * многоразовая — стрелка не расходуется. Нулевая команда ничего не меняет
+   * (и ходом не считается).
+   */
+  movePointBy(pointId: string, vectorId: string): boolean {
+    const pt = this.objects.get(pointId);
+    const vec = this.objects.get(vectorId);
+    if (!pt || pt.kind !== 'point' || !vec || vec.kind !== 'vector') return false;
+    if (vec.dx.isZero() && vec.dy.isZero()) return true; // «стой на месте» — не ход
+
+    const before: PointState = { x: pt.x, y: pt.y };
+    pt.x = pt.x.add(vec.dx);
+    pt.y = pt.y.add(vec.dy);
+    this.applyLog.push({ objectId: pointId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `📍 ${pt.label} прошла по ${vec.label} (${vec.dx.toDisplay()}; ${vec.dy.toDisplay()}): → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+    });
+    return true;
+  }
+
+  /**
+   * Переливание (серия 31, статистика): amount единиц уходит из одного
+   * столбика-числа в другой. Сумма набора НЕ меняется — это главный
+   * инвариант; среднее — «перелить поровну». Один атомарный ход
+   * (одна запись в журнал, один undo). Переменные-ползунки не переливаются.
+   */
+  transfer(fromId: string, toId: string, amount: Rational = Rational.of(1)): boolean {
+    const from = this.objects.get(fromId);
+    const to = this.objects.get(toId);
+    if (!from || from.kind !== 'number' || !to || to.kind !== 'number') return false;
+    if (fromId === toId || amount.sign() <= 0) return false;
+    if (from.variable || to.variable) return false;
+
+    from.value = from.value.sub(amount);
+    to.value = to.value.add(amount);
+    from.trail.push(from.value);
+    to.trail.push(to.value);
+    this.applyLog.push({ kind: 'transfer', fromId, toId, amount });
+    this.emit({
+      kind: 'transfer',
+      from,
+      to,
+      note: `⇄ перелито ${amount.toDisplay()}: столбики теперь ${from.value.toDisplay()} и ${to.value.toDisplay()} (сумма не изменилась)`,
+    });
+    return true;
+  }
+
+  /**
+   * Молоток по точке: ×k и ÷k тянут ОБЕ координаты — растяжение от начала
+   * координат (гомотетия), ×(−1) — разворот вокруг нуля (центральная
+   * симметрия), ×0 — склейка всех точек в начало. Прочие молотки отказывают.
+   */
+  pointApply(pointId: string, toolId: string): boolean {
+    const pt = this.objects.get(pointId);
+    const tool = this.tools.get(toolId);
+    if (!pt || pt.kind !== 'point' || !tool) return false;
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({
+        kind: 'tool-rejected', objectId: pointId, tool,
+        reason: 'по точке бьют только ×k и ÷k — растяжение от нуля и разворот; у адреса две цифры сразу',
+      });
+      return false;
+    }
+    const before: PointState = { x: pt.x, y: pt.y };
+    pt.x = tool.apply(pt.x);
+    pt.y = tool.apply(pt.y);
+    if (before.x.equals(pt.x) && before.y.equals(pt.y)) return true; // ×1 и точка в нуле — не ход
+    this.applyLog.push({ objectId: pointId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
+
+    const k = tool.op === 'mul' ? tool.n : Rational.of(tool.n.den, tool.n.num);
+    const tail = pt.x.isZero() && pt.y.isZero() ? ' — склейка в начало координат'
+      : k.sign() < 0 ? ' — разворот вокруг нуля' : '';
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `⚒ ${pt.label} ${tool.label}: (${before.x.toDisplay()}; ${before.y.toDisplay()}) → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})${tail}`,
+    });
+    return true;
+  }
+
+  /**
+   * Поворот точки на 90° вокруг нуля (серия 35 «движения»): против часовой
+   * (x; y) → (−y; x), по часовой — наоборот. Только прямые углы: поворот
+   * на «кривой» градус увёл бы рациональный адрес в иррациональность.
+   * Точка в нуле вращается в себя — не ход.
+   */
+  rotatePoint(pointId: string, dir: 'ccw' | 'cw'): boolean {
+    const pt = this.objects.get(pointId);
+    if (!pt || pt.kind !== 'point') return false;
+    const before: PointState = { x: pt.x, y: pt.y };
+    if (dir === 'ccw') {
+      const nx = pt.y.neg();
+      pt.y = before.x;
+      pt.x = nx;
+    } else {
+      const nx = pt.y;
+      pt.y = before.x.neg();
+      pt.x = nx;
+    }
+    if (before.x.equals(pt.x) && before.y.equals(pt.y)) return true; // нуль — центр
+    this.applyLog.push({ objectId: pointId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `⟳ ${pt.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+    });
+    return true;
+  }
+
+  /**
+   * Зеркало (серия 35 «движения»): отражение точки от оси X (y → −y)
+   * или от оси Y (x → −x). Точка НА оси отражается в себя — не ход.
+   */
+  flipPoint(pointId: string, axis: 'x' | 'y'): boolean {
+    const pt = this.objects.get(pointId);
+    if (!pt || pt.kind !== 'point') return false;
+    const before: PointState = { x: pt.x, y: pt.y };
+    if (axis === 'x') pt.y = pt.y.neg();
+    else pt.x = pt.x.neg();
+    if (before.x.equals(pt.x) && before.y.equals(pt.y)) return true; // лежит на зеркале
+    this.applyLog.push({ objectId: pointId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `🪞 ${pt.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+    });
+    return true;
+  }
+
+  /**
+   * Жест «прогони вход» (плоскость, этап B): молоток бьёт по оси X в точке a —
+   * рождается точка (a; инструмент(a)). Пара «вход; выход» и есть адрес,
+   * след инструмента проходит ровно через такие точки. Отказ сигнатуры честен:
+   * точки не будет, только событие tool-rejected (√ левее нуля молчит).
+   */
+  tracePoint(toolId: string, input: Rational): PointObject | null {
+    const tool = this.tools.get(toolId);
+    if (!tool) return null;
+    const refusal = tool.canApply(input);
+    if (refusal !== null) {
+      this.emit({ kind: 'tool-rejected', objectId: '', tool, reason: refusal });
+      return null;
+    }
+    const out = tool.apply(input);
+    const pt = this.spawnPoint(input, out);
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `⚒ ${subtitleFor(input, tool, out)} — точка ${pt.label} в (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+    });
+    return pt;
+  }
+
+  // ---------- кубоиды (сцена «Объёмы») ----------
+
+  private cuboidCounter = 0;
+
+  private static readonly CUBOID_MAX_W = Rational.of(12);
+  private static readonly CUBOID_MAX_DH = Rational.of(10);
+
+  spawnCuboid(w: Rational, d: Rational, h: Rational): CuboidObject {
+    const obj: CuboidObject = {
+      kind: 'cuboid',
+      id: nextId('cub'),
+      label: `К${++this.cuboidCounter}`,
+      w, d, h,
+      showW: true, showD: true, showH: true, showVolume: false,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  private cuboidNote(c: CuboidObject): string {
+    const dims = cuboidDims(c);
+    if (dims === 1) return `${c.label}: отрезок длины ${c.w.toDisplay()}`;
+    if (dims === 2) return `${c.label}: площадка ${c.w.toDisplay()}×${c.d.toDisplay()} — ${c.w.mul(c.d).toDisplay()} клеток`;
+    return `${c.label}: ${c.w.toDisplay()}×${c.d.toDisplay()}×${c.h.toDisplay()} — этаж ${c.w.mul(c.d).toDisplay()}, этажей ${c.h.toDisplay()}, объём ${cuboidVolume(c).toDisplay()}`;
+  }
+
+  private readonly cuboidDragBase = new Map<string, CuboidState>();
+
+  /**
+   * Экструзия/усушка кромками: транзиент + один коммит в журнал.
+   * Размеры — целые клетки (кубики не половинятся); d и h могут быть нулём —
+   * лесенка «отрезок → площадка → кубоид» честно живёт в одном объекте.
+   */
+  setCuboidSize(objectId: string, w: Rational, d: Rational, h: Rational, commit = true): boolean {
+    const c = this.objects.get(objectId);
+    if (!c || c.kind !== 'cuboid') return false;
+    if (!this.cuboidDragBase.has(objectId)) {
+      this.cuboidDragBase.set(objectId, { w: c.w, d: c.d, h: c.h });
+    }
+
+    const clampInt = (v: Rational, min: Rational, max: Rational): Rational => {
+      const snapped = floorRational(v.add(Rational.of(1, 2)));
+      if (snapped.compare(min) < 0) return min;
+      if (snapped.compare(max) > 0) return max;
+      return snapped;
+    };
+    c.w = clampInt(w, Rational.of(1), Session.CUBOID_MAX_W);
+    c.d = clampInt(d, Rational.of(0), Session.CUBOID_MAX_DH);
+    c.h = clampInt(h, Rational.of(0), Session.CUBOID_MAX_DH);
+    if (!commit) return true;
+
+    const before = this.cuboidDragBase.get(objectId)!;
+    this.cuboidDragBase.delete(objectId);
+    if (before.w.equals(c.w) && before.d.equals(c.d) && before.h.equals(c.h)) return true; // не ход
+
+    this.applyLog.push({ objectId, kind: 'cuboid', before, after: { w: c.w, d: c.d, h: c.h } });
+    this.emit({ kind: 'cuboid-changed', object: c, note: `📦 ${this.cuboidNote(c)}` });
+    return true;
+  }
+
+  /**
+   * Молоток по телу: ×k и ÷k масштабируют все РЁБРА. Заметка называет
+   * множитель по числу живых измерений — длина ×k, площадь ×k², объём ×k³:
+   * лесенка подобия живьём. Остальные молотки отказывают.
+   */
+  private scaleCuboid(c: CuboidObject, tool: Tool): boolean {
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({ kind: 'tool-rejected', objectId: c.id, tool, reason: 'тела понимают только ×N и ÷N — масштаб' });
+      return false;
+    }
+    if (tool.n.sign() <= 0) {
+      this.emit({ kind: 'tool-rejected', objectId: c.id, tool, reason: 'масштаб тела должен быть положительным' });
+      return false;
+    }
+    const k = tool.op === 'mul' ? tool.n : Rational.of(tool.n.den, tool.n.num);
+    const nw = c.w.mul(k);
+    const nd = c.d.mul(k);
+    const nh = c.h.mul(k);
+    if (nw.compare(Session.CUBOID_MAX_W) > 0 || nd.compare(Session.CUBOID_MAX_DH) > 0 ||
+        nh.compare(Session.CUBOID_MAX_DH) > 0) {
+      this.emit({ kind: 'tool-rejected', objectId: c.id, tool, reason: 'такое тело не поместится на поле' });
+      return false;
+    }
+    if (!nw.isInteger() || !nd.isInteger() || !nh.isInteger() || nw.sign() <= 0) {
+      this.emit({ kind: 'tool-rejected', objectId: c.id, tool, reason: 'кубики не половинятся — рёбра должны остаться целыми' });
+      return false;
+    }
+    const before: CuboidState = { w: c.w, d: c.d, h: c.h };
+    c.w = nw;
+    c.d = nd;
+    c.h = nh;
+    this.applyLog.push({ objectId: c.id, kind: 'cuboid', before, after: { w: c.w, d: c.d, h: c.h } });
+
+    const dims = cuboidDims(c);
+    const factor = dims === 3 ? `объём ×${k.mul(k).mul(k).toDisplay()}`
+      : dims === 2 ? `площадь ×${k.mul(k).toDisplay()}`
+      : `длина ×${k.toDisplay()}`;
+    this.emit({
+      kind: 'cuboid-changed',
+      object: c,
+      note: `⚒ ${c.label} ${tool.label}: рёбра ×${k.toDisplay()}, ${factor} — ${this.cuboidNote(c).split(': ')[1]}`,
+    });
+    return true;
+  }
+
+  // ---------- углы на единичной окружности ----------
+
+  private angleCounter = 0;
+
+  spawnAngle(deg: Rational): AngleObject {
+    const obj: AngleObject = {
+      kind: 'angle',
+      id: nextId('ang'),
+      label: `α${++this.angleCounter}`,
+      deg,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  private angleNote(a: AngleObject): string {
+    const sin = sinDeg(a.deg);
+    const place = degMod360(a.deg);
+    const laps = a.deg.sub(place).div(Rational.of(360));
+    const lapsTxt = laps.isZero() ? '' : `, намотка: ${laps.toDisplay()} круг(а) + ${place.toDisplay()}°`;
+    return `∠ ${a.label} = ${a.deg.toDisplay()}°${lapsTxt}, высота ${sin.exact ? '' : '≈ '}${sin.v.toDisplay()}`;
+  }
+
+  private readonly angleDragBase = new Map<string, AngleState>();
+
+  /** Вращение луча рукой: транзиент + один коммит в журнал (как точка). */
+  setAngleDeg(objectId: string, deg: Rational, commit = true): boolean {
+    const a = this.objects.get(objectId);
+    if (!a || a.kind !== 'angle') return false;
+    if (!this.angleDragBase.has(objectId)) this.angleDragBase.set(objectId, { deg: a.deg });
+
+    a.deg = deg;
+    if (!commit) return true;
+
+    const before = this.angleDragBase.get(objectId)!;
+    this.angleDragBase.delete(objectId);
+    if (before.deg.equals(a.deg)) return true; // вернулся в тот же раствор — не ход
+
+    this.applyLog.push({ objectId, kind: 'angle', before, after: { deg: a.deg } });
+    this.emit({ kind: 'angle-set', object: a, note: this.angleNote(a) });
+    return true;
+  }
+
+  /**
+   * Молоток по углу: ±n — поворот, ×k/÷k — растяжение раствора,
+   * ост360 — «где я на окружности», ряд360 — счётчик полных оборотов.
+   * Квадраты и корни отказывают: угол крутят, а не возводят.
+   */
+  private angleApplyTool(a: AngleObject, tool: Tool): boolean {
+    const allowed = ['add', 'sub', 'mul', 'div', 'round', 'mod', 'quot'];
+    if (!allowed.includes(tool.op)) {
+      this.emit({
+        kind: 'tool-rejected', objectId: a.id, tool,
+        reason: 'угол крутят и делят, а не возводят в степень',
+      });
+      return false;
+    }
+    const before: AngleState = { deg: a.deg };
+    a.deg = tool.apply(a.deg);
+    if (before.deg.equals(a.deg)) return true; // +0 и прочие нейтральные — не ход
+    this.applyLog.push({ objectId: a.id, kind: 'angle', before, after: { deg: a.deg } });
+    this.emit({
+      kind: 'angle-set',
+      object: a,
+      note: `⚒ ${a.label} ${tool.label}: ${before.deg.toDisplay()}° → ${a.deg.toDisplay()}° — ${this.angleNote(a).split(' = ')[1]}`,
+    });
+    return true;
+  }
+
+  // ---------- стрелки-векторы ----------
+
+  private vectorCounter = 0;
+
+  spawnVector(dx: Rational, dy: Rational): VectorObject {
+    const obj: VectorObject = {
+      kind: 'vector',
+      id: nextId('vec'),
+      label: `В${++this.vectorCounter}`,
+      dx,
+      dy,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  private readonly vecDragBase = new Map<string, VectorState>();
+
+  /**
+   * Смена команды стрелки (перетаскивание её головы): транзиент + один
+   * коммит в журнал, как у точки. Хвост — презентация, его переносы
+   * в журнал не попадают вовсе: команда не изменилась.
+   */
+  setVectorData(objectId: string, dx: Rational, dy: Rational, commit = true): boolean {
+    const v = this.objects.get(objectId);
+    if (!v || v.kind !== 'vector') return false;
+    if (!this.vecDragBase.has(objectId)) this.vecDragBase.set(objectId, { dx: v.dx, dy: v.dy });
+
+    v.dx = dx;
+    v.dy = dy;
+    if (!commit) return true;
+
+    const before = this.vecDragBase.get(objectId)!;
+    this.vecDragBase.delete(objectId);
+    if (before.dx.equals(v.dx) && before.dy.equals(v.dy)) return true; // та же команда — не ход
+
+    this.applyLog.push({ objectId, kind: 'vector', before, after: { dx: v.dx, dy: v.dy } });
+    this.emit({
+      kind: 'vector-changed',
+      object: v,
+      note: `↗ ${v.label} → (${v.dx.toDisplay()}; ${v.dy.toDisplay()})`,
+    });
+    return true;
+  }
+
+  /**
+   * Молоток по стрелке: только ×k и ÷k — растяжка, сжатие, разворот
+   * (обе компоненты разом, направление сохраняется или переворачивается).
+   * Остальные молотки честно отказывают: у команды две цифры сразу.
+   */
+  vectorApply(objectId: string, toolId: string): boolean {
+    const v = this.objects.get(objectId);
+    const tool = this.tools.get(toolId);
+    if (!v || v.kind !== 'vector' || !tool) return false;
+
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({
+        kind: 'tool-rejected', objectId, tool,
+        reason: 'по стрелке бьют только ×k и ÷k — растяжка и разворот; у команды две цифры сразу',
+      });
+      return false;
+    }
+    const before: VectorState = { dx: v.dx, dy: v.dy };
+    v.dx = tool.apply(v.dx);
+    v.dy = tool.apply(v.dy);
+    this.applyLog.push({ objectId, kind: 'vector', before, after: { dx: v.dx, dy: v.dy } });
+
+    const flipped = tool.n.sign() < 0;
+    const zeroed = v.dx.isZero() && v.dy.isZero() && !(before.dx.isZero() && before.dy.isZero());
+    const tail = zeroed ? ' — команда «стой на месте»' : flipped ? ' — тот же путь задом наперёд' : '';
+    this.emit({
+      kind: 'vector-changed',
+      object: v,
+      note: `⚒ ${v.label} ${tool.label}: (${before.dx.toDisplay()}; ${before.dy.toDisplay()}) → (${v.dx.toDisplay()}; ${v.dy.toDisplay()})${tail}`,
+    });
+    return true;
+  }
+
+  /**
+   * Сумма двух стрелок — жест «хвост к носу»: пройди первую команду,
+   * потом вторую; итог — новая стрелка. Работает и в запертых упражнениях
+   * (это операция над данными блоками, не создание с нуля).
+   */
+  sumVectors(aId: string, bId: string): VectorObject | null {
+    const a = this.objects.get(aId);
+    const b = this.objects.get(bId);
+    if (!a || a.kind !== 'vector' || !b || b.kind !== 'vector' || aId === bId) return null;
+    const sum = this.spawnVector(a.dx.add(b.dx), a.dy.add(b.dy));
+    this.emit({
+      kind: 'vector-changed',
+      object: sum,
+      note: `➕ ${a.label} ⊕ ${b.label} = ${sum.label} (${sum.dx.toDisplay()}; ${sum.dy.toDisplay()})`,
+    });
+    return sum;
+  }
+
   // ---------- весы v2: уравнение с x на обеих чашах ----------
 
   /**
@@ -592,6 +1112,7 @@ export class Session {
     };
     this.objects.set(obj.id, obj);
     this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
     return obj;
   }
 
@@ -829,8 +1350,36 @@ export class Session {
   undo(): boolean {
     const last = this.applyLog.pop();
     if (!last) return false;
+
+    if (last.kind === 'removal') {
+      // воскрешение: тот же экземпляр возвращается на доску
+      this.objects.set(last.object.id, last.object);
+      this.emit({ kind: 'object-spawned', object: last.object });
+      this.emit({ kind: 'undo', objectId: last.object.id, note: '⟲ удаление отменено' });
+      return true;
+    }
+    if (last.kind === 'transfer') {
+      const from = this.objects.get(last.fromId);
+      const to = this.objects.get(last.toId);
+      if (!from || from.kind !== 'number' || !to || to.kind !== 'number') return this.undo();
+      from.value = from.value.add(last.amount);
+      to.value = to.value.sub(last.amount);
+      from.trail.pop();
+      to.trail.pop();
+      this.emit({
+        kind: 'undo',
+        objectId: last.fromId,
+        note: `⟲ переливание отменено: снова ${from.value.toDisplay()} и ${to.value.toDisplay()}`,
+      });
+      return true;
+    }
     const obj = this.objects.get(last.objectId);
     if (!obj) return this.undo(); // объект уже удалён — отматываем дальше
+    if (last.kind === 'spawn') {
+      this.removeObject(last.objectId, true); // тихо: без встречной записи в журнал
+      this.emit({ kind: 'undo', objectId: last.objectId, note: '⟲ создание отменено' });
+      return true;
+    }
 
     if (last.kind === 'number' && obj.kind === 'number') {
       obj.value = last.before;
@@ -853,6 +1402,38 @@ export class Session {
       obj.cutsX = [...last.before.cutsX];
       obj.cutsY = [...last.before.cutsY];
       this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.rectNote(obj)}` });
+      return true;
+    }
+    if (last.kind === 'point' && obj.kind === 'point') {
+      obj.x = last.before.x;
+      obj.y = last.before.y;
+      this.emit({
+        kind: 'undo',
+        objectId: obj.id,
+        note: `⟲ ${obj.label} вернулась в (${obj.x.toDisplay()}; ${obj.y.toDisplay()})`,
+      });
+      return true;
+    }
+    if (last.kind === 'vector' && obj.kind === 'vector') {
+      obj.dx = last.before.dx;
+      obj.dy = last.before.dy;
+      this.emit({
+        kind: 'undo',
+        objectId: obj.id,
+        note: `⟲ ${obj.label} снова (${obj.dx.toDisplay()}; ${obj.dy.toDisplay()})`,
+      });
+      return true;
+    }
+    if (last.kind === 'cuboid' && obj.kind === 'cuboid') {
+      obj.w = last.before.w;
+      obj.d = last.before.d;
+      obj.h = last.before.h;
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.cuboidNote(obj)}` });
+      return true;
+    }
+    if (last.kind === 'angle' && obj.kind === 'angle') {
+      obj.deg = last.before.deg;
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} снова ${obj.deg.toDisplay()}°` });
       return true;
     }
     if (last.kind === 'equation' && obj.kind === 'equation') {

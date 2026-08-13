@@ -29,6 +29,23 @@ function fresh(board: BoardJson): Session {
   expect(importBoardData(s, board)).toBe(true);
   return s;
 }
+
+/** Счётчик ходов — та же логика, что в панели задания (reader). */
+function countSteps(s: Session, run: () => void): number {
+  let steps = 0;
+  const off = s.on((e) => {
+    const counted =
+      (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
+        e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set' ||
+        e.kind === 'point-moved' || e.kind === 'vector-changed' || e.kind === 'cuboid-changed' ||
+        e.kind === 'transfer' || e.kind === 'angle-set') &&
+      !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral);
+    if (counted) steps++;
+  });
+  run();
+  off();
+  return steps;
+}
 const objs = (s: Session) => [...s.objects.values()];
 const tool = (s: Session, op: string, i = 0) =>
   [...s.tools.values()].filter((t) => t.op === op)[i]!;
@@ -40,6 +57,14 @@ function hammer(s: Session, op: string): void {
 }
 const tapeByMode = (s: Session, mode: number) =>
   objs(s).find((o) => o.kind === 'tape' && o.mode === mode)!;
+
+/** Число-объект с данным значением. */
+const byValue = (s: Session, v: number) =>
+  objs(s).find((o) => o.kind === 'number' && o.value.equals(R(v)))!;
+
+/** «Прогони вход» на плоскости i-м инструментом доски. */
+const traceIn = (s: Session, x: number, i = 0) =>
+  s.tracePoint([...s.tools.values()][i]!.id, R(x));
 
 /** Решатели: id упражнения (и id#cN / id#b для контрпримеров и обстрелов) → ходы. */
 const SOLVERS: Record<string, (s: Session) => void> = {
@@ -192,6 +217,198 @@ const SOLVERS: Record<string, (s: Session) => void> = {
   'pr-01#c2': (s) => s.applyInverse(tool(s, 'mul').id, objs(s)[0]!.id),
   'pr-02': (s) => { hammer(s, 'div'); hammer(s, 'mul'); },
 
+  'rnd-01': (s) => hammer(s, 'round'),
+  'rnd-01#b': (s) => hammer(s, 'round'),
+  'rnd-02': (s) => { const o = s.spawnObject(R(47)); s.applyTool(tool(s, 'sq').id, o.id); },
+
+  'rem-01': (s) => {
+    const [a, b] = objs(s);
+    s.applyTool(tool(s, 'quot').id, a!.id);
+    s.applyTool(tool(s, 'mod').id, b!.id);
+  },
+  'rem-02': (s) => s.applyTool(tool(s, 'quot').id, objs(s)[0]!.id),
+  'rem-02#c0': (s) => {
+    const [a, b] = objs(s);
+    s.applyTool(tool(s, 'quot').id, a!.id);
+    s.applyTool(tool(s, 'mod').id, b!.id);
+  },
+  'rem-03': (s) => hammer(s, 'mod'),
+
+  'sim-01': (s) => s.applyTool(tool(s, 'mul').id, objs(s)[0]!.id),
+  'sim-02': (s) => s.applyTool(tool(s, 'mul').id, objs(s)[0]!.id),
+  'sim-02#c0': (s) => s.applyTool(tool(s, 'mul').id, objs(s)[0]!.id),
+  'sim-02#b': (s) => s.applyTool(tool(s, 'div').id, objs(s)[0]!.id),
+  'per-01': (s) => s.setRectSize(objs(s)[0]!.id, R(4), R(4), true),
+
+  // кольцо — сценная механика; в ядре прогон = серия ударов по кругу
+  'prog-01': (s) => { for (let i = 0; i < 5; i++) s.applyTool(tool(s, 'add').id, objs(s)[0]!.id); },
+  'prog-02': (s) => { for (let i = 0; i < 6; i++) s.applyTool(tool(s, 'mul').id, objs(s)[0]!.id); },
+
+  'pl-01': (s) => s.spawnPoint(R(3), R(2)),
+  'pl-02': (s) => s.spawnPoint(R(3), R(2)),
+  'pl-02#c0': (s) => { s.spawnPoint(R(2), R(3)); s.spawnPoint(R(3), R(2)); },
+  'pl-02#b': (s) => { s.spawnPoint(R(-2), R(1)); s.spawnPoint(R(0), R(-3)); },
+  'tr-01': (s) => traceIn(s, 3),
+  'tr-02': (s) => { traceIn(s, 1, 0); traceIn(s, 1, 1); },
+  'tr-03': (s) => { traceIn(s, -3); traceIn(s, 3); },
+  'tr-03#c1': (s) => { traceIn(s, -5); traceIn(s, 5); },
+  'tr-03#c2': (s) => { traceIn(s, 1); traceIn(s, 2); },
+  'tr-03#b': (s) => traceIn(s, 0),
+  'tr-04': (s) => traceIn(s, 9),
+  'tr-04#c2': (s) => traceIn(s, 1),
+  'tr-04#b': (s) => traceIn(s, 0),
+
+  'mv-01': (s) => {
+    const pt = objs(s).find((o) => o.kind === 'point')!;
+    const v = objs(s).find((o) => o.kind === 'vector')!;
+    s.movePointBy(pt.id, v.id);
+  },
+  'mv-02': (s) => {
+    const v = objs(s).find((o) => o.kind === 'vector')!;
+    for (const o of objs(s)) if (o.kind === 'point') s.movePointBy(o.id, v.id);
+  },
+  'mv-02#c1': (s) => {
+    const v = objs(s).find((o) => o.kind === 'vector')!;
+    for (const o of objs(s)) if (o.kind === 'point') s.movePointBy(o.id, v.id);
+  },
+  'mv-02#b': (s) => {
+    const pt = objs(s).find((o) => o.kind === 'point')!;
+    const v = objs(s).find((o) => o.kind === 'vector')!;
+    s.movePointBy(pt.id, v.id);
+  },
+
+  'an-01': (s) => {
+    const a = objs(s)[0]!;
+    for (let i = 0; i < 3; i++) s.applyTool(tool(s, 'add').id, a.id);
+  },
+  'an-02': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'an-02#c1': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'an-02#c2': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'an-02#b': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'an-03': (s) => {
+    const a = objs(s)[0]!;
+    for (let i = 0; i < 4; i++) s.applyTool(tool(s, 'add', 0).id, a.id);
+    s.applyTool(tool(s, 'add', 1).id, a.id);
+  },
+  'an-03#c1': (s) => s.applyTool(tool(s, 'mod').id, objs(s)[0]!.id),
+  'an-03#b': (s) => s.applyTool(tool(s, 'sub').id, objs(s)[0]!.id),
+
+  'rad-01': (s) => {
+    const a = objs(s)[0]!;
+    for (let i = 0; i < 4; i++) s.applyTool(tool(s, 'add').id, a.id);
+  },
+  'rad-02': (s) => {
+    const a = objs(s)[0]!;
+    s.applyTool(tool(s, 'add').id, a.id);
+    s.applyTool(tool(s, 'add').id, a.id);
+  },
+  'rad-02#c1': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'rad-02#b': (s) => s.applyTool(tool(s, 'sub').id, objs(s)[0]!.id),
+
+  'tm-01': (s) => s.setCuboidSize(objs(s)[0]!.id, R(2), R(3), R(5), true),
+  'tm-02': (s) => s.setCuboidSize(objs(s)[0]!.id, R(4), R(2), R(6), true),
+  'tm-02#c1': (s) => s.setCuboidSize(objs(s)[0]!.id, R(4), R(2), R(1), true),
+  'tm-02#b': (s) => s.setCuboidSize(objs(s)[0]!.id, R(4), R(2), R(0), true),
+
+  'mo-04': (s) => s.rotatePoint(objs(s)[0]!.id, 'ccw'),
+  'mo-04#c2': (s) => {
+    s.rotatePoint(objs(s)[0]!.id, 'ccw');
+    s.rotatePoint(objs(s)[0]!.id, 'ccw');
+  },
+  'mo-04#b': (s) => s.rotatePoint(objs(s)[0]!.id, 'ccw'),
+
+  'wv-01': (s) => {
+    const a = objs(s)[0]!;
+    for (let i = 0; i < 5; i++) s.applyTool(tool(s, 'add').id, a.id);
+  },
+  'wv-02': (s) => {
+    const angles = objs(s).filter((o) => o.kind === 'angle');
+    s.applyTool(tool(s, 'add', 0).id, angles[1]!.id); // +120 → 150
+    s.applyTool(tool(s, 'add', 1).id, angles[2]!.id); // +360 → 390
+  },
+  'wv-02#c0': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+  'wv-02#b': (s) => s.applyTool(tool(s, 'add').id, objs(s)[0]!.id),
+
+  'st-01': (s) => s.transfer(byValue(s, 7).id, byValue(s, 3).id, R(2)),
+  'st-01#c1': (s) => { const [a, b] = objs(s); s.transfer(a!.id, b!.id, R(2)); },
+  'st-02': (s) => {
+    s.transfer(byValue(s, 7).id, byValue(s, 1).id, R(3));
+    s.transfer(byValue(s, 5).id, byValue(s, 3).id, R(1));
+  },
+  'st-02#c0': (s) => {
+    const seven = byValue(s, 7);
+    for (const o of objs(s)) if (o !== seven) s.transfer(seven.id, o.id, R(1));
+  },
+  'st-02#b': (s) => s.transfer(byValue(s, 5).id, byValue(s, -1).id, R(3)),
+  'st-03': (s) => s.applyTool(tool(s, 'sub').id, byValue(s, 100).id),
+  'st-03#c0': (s) => s.transfer(byValue(s, 100).id, byValue(s, 2).id, R(19)),
+  'st-03#b': (s) => s.applyTool(tool(s, 'add').id, byValue(s, 10).id),
+
+  'mo-01': (s) => s.flipPoint(objs(s)[0]!.id, 'x'),
+  'mo-02': (s) => s.pointApply(objs(s)[0]!.id, tool(s, 'mul').id),
+  'mo-02#c1': (s) => { s.flipPoint(objs(s)[0]!.id, 'x'); s.flipPoint(objs(s)[0]!.id, 'y'); },
+  'mo-02#c2': (s) => s.pointApply(objs(s)[0]!.id, tool(s, 'mul').id),
+  'mo-02#b': (s) => s.flipPoint(objs(s)[0]!.id, 'y'),
+  'mo-03': (s) => { for (const o of objs(s)) s.pointApply(o.id, tool(s, 'mul').id); },
+  'mo-03#c0': (s) => { for (const o of objs(s)) s.pointApply(o.id, tool(s, 'mul').id); },
+  'mo-03#b': (s) => s.pointApply(objs(s)[0]!.id, tool(s, 'mul').id),
+
+  'sl-01': (s) => { traceIn(s, 1); traceIn(s, 3); },
+  'sl-02': (s) => { traceIn(s, 1); traceIn(s, 3); },
+  'sl-02#c0': (s) => { traceIn(s, 0); traceIn(s, 1); },
+  'sl-02#c2': (s) => { traceIn(s, 1); traceIn(s, 2); },
+  'sl-02#b': (s) => {
+    traceIn(s, 1);
+    s.tracePoint([...s.tools.values()][0]!.id, R(3, 2));
+  },
+
+  'cl-01': (s) => traceIn(s, 4),
+  'cl-02': (s) => traceIn(s, 6),
+  'cl-02#c0': (s) => traceIn(s, 3),
+  'cl-02#b': (s) => traceIn(s, 3),
+
+  'vol-01': (s) => {
+    const c = objs(s)[0]!;
+    s.setCuboidSize(c.id, R(4), R(3), R(0), true);
+    s.setCuboidSize(c.id, R(4), R(3), R(2), true);
+  },
+  'vol-02': (s) => s.setCuboidSize(objs(s)[0]!.id, R(5), R(4), R(3), true),
+  'vol-02#c0': (s) => s.setCuboidSize(objs(s)[0]!.id, R(5), R(4), R(1), true),
+  'vol-02#b': (s) => s.setCuboidSize(objs(s)[0]!.id, R(5), R(4), R(0), true),
+  'vol-03': (s) => { for (const o of objs(s)) s.applyTool(tool(s, 'mul').id, o.id); },
+  'vol-03#b': (s) => s.applyTool(tool(s, 'div').id, objs(s)[0]!.id),
+
+  'vc-01': (s) => s.spawnVector(R(3), R(1)),
+  'vc-02': (s) => { const [a, b] = objs(s); s.sumVectors(a!.id, b!.id); },
+  'vc-02#c0': (s) => { const [a, b] = objs(s); s.sumVectors(a!.id, b!.id); },
+  'vc-02#b': (s) => { const [a, b] = objs(s); s.sumVectors(a!.id, b!.id); },
+  'vc-03': (s) => {
+    const v = objs(s)[0]!;
+    s.vectorApply(v.id, tool(s, 'mul', 0).id);
+    s.vectorApply(v.id, tool(s, 'mul', 1).id);
+  },
+  'vc-03#c1': (s) => s.vectorApply(objs(s)[0]!.id, tool(s, 'mul').id),
+  'vc-03#b': (s) => s.vectorApply(objs(s)[0]!.id, tool(s, 'mul').id),
+
+  'rt-01': (s) => traceIn(s, 2),
+  'rt-02': (s) => { traceIn(s, -2); traceIn(s, 2); },
+  'rt-02#c0': (s) => traceIn(s, 0),
+  'rt-02#b': (s) => traceIn(s, 0),
+  'ineq-01': (s) => traceIn(s, 2),
+  'ineq-01#c0': (s) => traceIn(s, 1),
+  'ineq-01#c2': (s) => traceIn(s, 3),
+  'ineq-01#b': (s) => traceIn(s, -3),
+  'mt-01': (s) => s.spawnPoint(R(3), R(6)),
+  'mt-02': (s) => traceIn(s, 3, 0),
+  'mt-02#c1': (s) => { traceIn(s, 0, 0); traceIn(s, 0, 1); },
+  'mt-02#c2': (s) => { traceIn(s, 5, 0); traceIn(s, 5, 1); },
+  'mt-02#b': (s) => { traceIn(s, 1, 0); traceIn(s, 1, 1); },
+
+  'pl-03': (s) => {
+    s.spawnPoint(R(1), R(1)); s.spawnPoint(R(5), R(1));
+    s.spawnPoint(R(5), R(4)); s.spawnPoint(R(1), R(4));
+  },
+
   'eq2-01': (s) => eqBoth(s, 'subx'),
   'eq2-02': (s) => { eqBoth(s, 'subx'); eqBoth(s, 'sub'); },
   'eq2-02#c0': (s) => eqBoth(s, 'add'),
@@ -239,8 +456,13 @@ describe('упражнения: импорт, цели, решаемость', (
       }
       const solve = SOLVERS[id];
       expect(solve, `нет решателя для ${id}`).toBeDefined();
-      solve!(s);
+      const used = countSteps(s, () => solve!(s));
       expect(checkGoal(s, spec.goal), 'решение не достигает цели').toBe(true);
+      if (spec.maxSteps !== undefined) {
+        // «идеал» обязан быть достижим: решатель укладывается в лимит ходов
+        expect(used, `решателю нужно ${used} ход(ов), а maxSteps = ${spec.maxSteps}`)
+          .toBeLessThanOrEqual(spec.maxSteps);
+      }
     });
   }
 });

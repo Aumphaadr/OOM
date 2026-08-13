@@ -1,0 +1,17 @@
+{
+  "id": "rem-03",
+  "task": "Молоток «ост2» — детектор чётности: ударь по всем четырём числам. Ноль — чётное, единица — нечётное.",
+  "scene": "boxes",
+  "goal": { "kind": "values-include", "values": ["0", "1"] },
+  "hints": ["Чётное число строится в два ровных ряда — лишних нет."],
+  "board": {
+    "v": 1,
+    "tools": [{ "op": "mod", "n": "2/1", "hidden": false }],
+    "objects": [
+      { "kind": "number", "trail": ["8/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["13/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["40/1"], "scenePos": {} },
+      { "kind": "number", "trail": ["57/1"], "scenePos": {} }
+    ]
+  }
+}

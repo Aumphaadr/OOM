@@ -50,7 +50,6 @@ body {
 
 .topbar h1 { font-size: 1.3rem; color: var(--accent); }
 .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-#lesson-select { max-width: 170px; padding: 0 8px; }
 
 .history-wrap { position: relative; }
 .history-dropdown {
@@ -66,6 +65,27 @@ body {
   padding: 10px 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   z-index: 50;
+}
+
+/* Меню «Доска»: все сохранения-загрузки под одной кнопкой */
+.board-menu { width: 260px; padding: 6px; }
+.board-menu .menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.board-menu .menu-item:hover { background: var(--bg-tertiary); }
+.board-menu hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
 }
 
 .scene-tabs { display: flex; gap: 8px; }
@@ -243,6 +263,31 @@ input:focus, select:focus {
 label.field { flex: 1; min-width: 0; color: var(--text-secondary); }
 label.field input,
 label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block; }
+
+/* Галки в панелях сцен: квадратик слева, подпись рядом, вся строка кликабельна.
+   Перебивает поведение .field, где input растянут блоком на всю ширину. */
+label.tp-check,
+label.field.tp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+label.tp-check:hover,
+label.field.tp-check:hover { color: var(--text-primary); }
+label.tp-check input[type='checkbox'],
+label.field.tp-check input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  display: inline-block;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 .subtitles {
   list-style: none;

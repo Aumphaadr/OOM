@@ -32,4 +32,5 @@ export function loadLesson(session: Session, spec: LessonSpec): void {
     const len = Rational.parse(t.len);
     if (len) session.spawnTape(len, t.mode);
   }
+  session.resetHistory(); // пресет — не ходы
 }
