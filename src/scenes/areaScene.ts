@@ -16,7 +16,7 @@ const BAND_MIN = 6;
 interface Pos { x: number; y: number } // scenePos: НИЖНИЙ ЛЕВЫЙ угол, px
 
 type Gesture =
-  | { type: 'edge-h' | 'edge-w'; obj: RectObject }
+  | { type: 'edge-h' | 'edge-w' | 'corner'; obj: RectObject }
   | { type: 'body'; offsets: Map<string, Pos>; startX: number; startY: number; moved: boolean;
       rectId: string; wasSelected: boolean }
   | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean };
@@ -36,6 +36,8 @@ export class AreaScene implements Scene {
   /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
   private readonly pan = { x: 0, y: 0 };
   private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
+  /** Зум колесом (к курсору); мир в «мировых пикселях», клетка PX неизменна. */
+  private zoom = 1;
   private unsubscribe: (() => void) | null = null;
   private pointer = { x: 0, y: 0, inside: false };
   private canvasEl: HTMLElement | null = null;
@@ -221,8 +223,8 @@ export class AreaScene implements Scene {
     (q('#ar-del') as HTMLButtonElement).hidden = !this.ctx.restrictions.construct;
     const host = this.card.parentElement!;
     this.card.hidden = false;
-    const sx = x + this.pan.x;
-    const sy = y + this.pan.y;
+    const sx = x * this.zoom + this.pan.x;
+    const sy = y * this.zoom + this.pan.y;
     this.card.style.left = `${Math.min(Math.max(sx, 10), host.clientWidth - 280)}px`;
     this.card.style.top = `${Math.min(Math.max(sy + 12, 10), host.clientHeight - 220)}px`;
   }
@@ -274,7 +276,7 @@ export class AreaScene implements Scene {
 
   /** Что под курсором у фигуры: кромка, рез, линия сетки или тело. */
   private hitPart(r: RectObject, x: number, y: number):
-    | { part: 'edge-h' | 'edge-w' | 'body' }
+    | { part: 'edge-h' | 'edge-w' | 'corner' | 'body' }
     | { part: 'cut' | 'seam'; axis: 'x' | 'y'; pos: Rational }
     | null {
     const p = this.ensurePos(r);
@@ -282,6 +284,10 @@ export class AreaScene implements Scene {
     const hPx = r.h.toNumber() * PX;
     const top = p.y - hPx;
 
+    // Угол (верх-право): обе кромки разом
+    if (!r.h.isZero() && Math.hypot(x - (p.x + wPx), y - top) <= EDGE_HIT + 5) {
+      return { part: 'corner' };
+    }
     // Верхняя кромка (у отрезка — ручка над серединой)
     if (r.h.isZero()) {
       if (Math.abs(y - p.y) <= EDGE_HIT + 4 && Math.abs(x - (p.x + wPx / 2)) <= 22) return { part: 'edge-h' };
@@ -317,17 +323,33 @@ export class AreaScene implements Scene {
 
   // ---------- ввод ----------
 
+  onWheel(x: number, y: number, deltaY: number): void {
+    const factor = deltaY < 0 ? 1.12 : 1 / 1.12;
+    const next = Math.min(4, Math.max(0.25, this.zoom * factor));
+    const wx = (x - this.pan.x) / this.zoom;
+    const wy = (y - this.pan.y) / this.zoom;
+    this.pan.x = x - wx * next;
+    this.pan.y = y - wy * next;
+    this.zoom = next;
+  }
+
   onPointerDown(raw: { x: number; y: number; button: number; shift?: boolean }): void {
     if (raw.button === 1) {
       this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
 
     if (p.button === 2) {
-      this.ctx.dropHand();
+      if (this.ctx.hand.toolId) {
+        this.ctx.dropHand();
+        return;
+      }
+      const rc = this.rectAt(p.x, p.y);
+      if (rc) this.openCard(rc, p.x, p.y);
+      else this.hideCard();
       return;
     }
     if (p.button !== 0) return;
@@ -347,7 +369,7 @@ export class AreaScene implements Scene {
     const r = this.rectAt(p.x, p.y);
     if (r) {
       const hit = this.hitPart(r, p.x, p.y);
-      if (hit?.part === 'edge-h' || hit?.part === 'edge-w') {
+      if (hit?.part === 'edge-h' || hit?.part === 'edge-w' || hit?.part === 'corner') {
         this.gesture = { type: hit.part, obj: r };
         return;
       }
@@ -389,7 +411,7 @@ export class AreaScene implements Scene {
       this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     this.pointer = { x: p.x, y: p.y, inside: true };
     const g = this.gesture;
     if (!g || !this.ctx) return;
@@ -402,6 +424,11 @@ export class AreaScene implements Scene {
       const pos = this.ensurePos(g.obj);
       const w = Rational.of(Math.round(((p.x - pos.x) / PX) * 2), 2);
       this.ctx.session.setRectSize(g.obj.id, w, g.obj.h, false);
+    } else if (g.type === 'corner') {
+      const pos = this.ensurePos(g.obj);
+      const w = Rational.of(Math.round(((p.x - pos.x) / PX) * 2), 2);
+      const h = Rational.of(Math.round(((pos.y - p.y) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, w, h, false);
     } else if (g.type === 'body') {
       if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) > DRAG_THRESHOLD) g.moved = true;
       if (g.moved) {
@@ -425,7 +452,7 @@ export class AreaScene implements Scene {
     this.gesture = null;
     if (!g || !this.ctx) return;
 
-    if (g.type === 'edge-h' || g.type === 'edge-w') {
+    if (g.type === 'edge-h' || g.type === 'edge-w' || g.type === 'corner') {
       // фиксация размеров: одна запись в журнал
       this.ctx.session.setRectSize(g.obj.id, g.obj.w, g.obj.h, true);
       return;
@@ -468,6 +495,7 @@ export class AreaScene implements Scene {
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     g.save();
     g.translate(this.pan.x, this.pan.y);
+    g.scale(this.zoom, this.zoom);
     this.renderWorld(g, w, h, dt, now);
     g.restore();
   }
@@ -475,11 +503,21 @@ export class AreaScene implements Scene {
   private renderWorld(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     if (!this.ctx) return;
 
-    // Клетчатое поле
+    // Клетчатое поле — на всю видимую область с учётом пана
     g.strokeStyle = theme.grid;
     g.lineWidth = 1;
-    for (let x = 0; x < w; x += PX) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
-    for (let y = 0; y < h; y += PX) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    const gLeft = -this.pan.x / this.zoom;
+    const gTop = -this.pan.y / this.zoom;
+    const gW = w / this.zoom;
+    const gH = h / this.zoom;
+    const gx0 = Math.floor(gLeft / PX) * PX;
+    const gy0 = Math.floor(gTop / PX) * PX;
+    for (let x = gx0; x < gLeft + gW + PX; x += PX) {
+      g.beginPath(); g.moveTo(x, gTop); g.lineTo(x, gTop + gH); g.stroke();
+    }
+    for (let y = gy0; y < gTop + gH + PX; y += PX) {
+      g.beginPath(); g.moveTo(gLeft, y); g.lineTo(gLeft + gW, y); g.stroke();
+    }
 
     for (const r of this.rects()) this.drawRect(g, r);
 
@@ -515,12 +553,14 @@ export class AreaScene implements Scene {
     const gt = this.gesture?.type;
     if (gt === 'edge-h') cursor = 'ns-resize';
     else if (gt === 'edge-w') cursor = 'ew-resize';
+    else if (gt === 'corner') cursor = 'nesw-resize';
     else if (gt === 'body') cursor = 'grabbing';
     else if (!hasHand && this.pointer.inside) {
       const r = this.rectAt(this.pointer.x, this.pointer.y);
       const hit = r ? this.hitPart(r, this.pointer.x, this.pointer.y) : null;
       if (hit?.part === 'edge-h') cursor = 'ns-resize';
       else if (hit?.part === 'edge-w') cursor = 'ew-resize';
+      else if (hit?.part === 'corner') cursor = 'nesw-resize';
       else if (hit?.part === 'cut' || hit?.part === 'seam') cursor = 'pointer';
       else if (hit?.part === 'body') cursor = 'grab';
     }

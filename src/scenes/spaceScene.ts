@@ -42,6 +42,8 @@ export class SpaceScene implements Scene {
   private pointer = { x: 0, y: 0, inside: false };
   private showSlice = false;
   private sliceLevel = 1;
+  private card: HTMLElement | null = null;
+  private cardId: string | null = null;
   private readonly labels = new FlyingLabels();
 
   private readonly keyHandler = (e: KeyboardEvent): void => {
@@ -58,13 +60,20 @@ export class SpaceScene implements Scene {
   attach(ctx: SceneContext): void {
     this.ctx = ctx;
     window.addEventListener('keydown', this.keyHandler);
+    this.buildCard();
     this.unsubscribe = ctx.session.on((e) => {
-      if (e.kind === 'object-removed') this.selection.delete(e.objectId);
+      if (e.kind === 'object-removed') {
+        this.selection.delete(e.objectId);
+        if (this.cardId === e.objectId) this.hideCard();
+      }
     });
   }
 
   detach(): void {
     window.removeEventListener('keydown', this.keyHandler);
+    this.card?.remove();
+    this.card = null;
+    this.cardId = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.ctx = null;
@@ -81,15 +90,14 @@ export class SpaceScene implements Scene {
         <label class="field">h<input id="cb-h" value="2" /></label>
         <button id="cb-spawn" class="btn primary"><span class="ic">${icon('plus', 12)}</span>Кубоид</button>
       </div>
-      <label class="field tp-check"><input type="checkbox" id="cb-sizes" checked /> подписывать размеры</label>
-      <label class="field tp-check"><input type="checkbox" id="cb-volume" /> подписывать объём (по этажам)</label>
       <div class="series-row">
         <label class="field tp-check" style="flex:2"><input type="checkbox" id="cb-slice" /> томограф: срез этажа</label>
         <label class="field">№<input id="cb-slice-k" value="1" /></label>
       </div>
       <p class="hint">Тяни кромки-ручки: ширину, глубину, высоту. Нулевая глубина —
         отрезок, нулевая высота — площадка: лесенка «отрезок → площадка → кубоид».
-        Молотки ×k и ÷k масштабируют все рёбра — смотри, что делается с объёмом.</p>
+        Молотки ×k и ÷k масштабируют все рёбра. Подписи размеров и объёма —
+        в карточке тела: клик по выделенному или ПКМ.</p>
     `;
     root.querySelector<HTMLButtonElement>('#cb-spawn')!.addEventListener('click', () => {
       if (!this.ctx || !this.ctx.restrictions.construct) return;
@@ -98,25 +106,11 @@ export class SpaceScene implements Scene {
       const h = Rational.parse(root.querySelector<HTMLInputElement>('#cb-h')!.value);
       if (!w || !d || !h) return;
       const c = this.ctx.session.spawnCuboid(w, d, h);
-      // подхватываем текущие галки подписей
-      const sizes = root.querySelector<HTMLInputElement>('#cb-sizes')!.checked;
-      c.showW = sizes; c.showD = sizes; c.showH = sizes;
-      c.showVolume = root.querySelector<HTMLInputElement>('#cb-volume')!.checked;
       const n = this.cuboids().length - 1;
       c.scenePos.set(this.id, { x: 200 + n * 60, y: 300 + n * 30 });
       this.selection.clear();
       this.selection.add(c.id);
     });
-    const applyChecks = (): void => {
-      const sizes = root.querySelector<HTMLInputElement>('#cb-sizes')!.checked;
-      const vol = root.querySelector<HTMLInputElement>('#cb-volume')!.checked;
-      for (const c of this.cuboids()) {
-        c.showW = sizes; c.showD = sizes; c.showH = sizes;
-        c.showVolume = vol;
-      }
-    };
-    root.querySelector<HTMLInputElement>('#cb-sizes')!.addEventListener('change', applyChecks);
-    root.querySelector<HTMLInputElement>('#cb-volume')!.addEventListener('change', applyChecks);
     root.querySelector<HTMLInputElement>('#cb-slice')!.addEventListener('change', (e) => {
       this.showSlice = (e.target as HTMLInputElement).checked;
     });
@@ -125,6 +119,72 @@ export class SpaceScene implements Scene {
       if (v) this.sliceLevel = Math.max(1, Math.round(v.toNumber()));
     });
     return root;
+  }
+
+  private buildCard(): void {
+    const host = document.querySelector('.stage-wrap');
+    if (!host) return;
+    this.card = document.createElement('div');
+    this.card.className = 'tape-popup';
+    this.card.hidden = true;
+    this.card.innerHTML = `
+      <div class="task-head"><b id="sc-title">Тело</b>
+        <span class="task-actions"><button id="sc-close" class="btn ghost" title="Закрыть">${icon('close', 12)}</button></span>
+      </div>
+      <label class="field tp-check"><input type="checkbox" id="sc-w" /> показывать ширину</label>
+      <label class="field tp-check"><input type="checkbox" id="sc-d" /> показывать глубину</label>
+      <label class="field tp-check"><input type="checkbox" id="sc-h" /> показывать высоту</label>
+      <label class="field tp-check"><input type="checkbox" id="sc-vol" /> показывать объём (по этажам)</label>
+      <button id="sc-del" class="btn ghost"><span class="ic">${icon('trash', 13)}</span>Удалить тело</button>
+    `;
+    host.appendChild(this.card);
+    const q = <T extends HTMLElement>(sel: string) => this.card!.querySelector<T>(sel)!;
+    q('#sc-close').addEventListener('click', () => this.hideCard());
+    // Галочки показа — применяются мгновенно (настройка вида, не математики)
+    const bindFlag = (sel: string, apply: (c: CuboidObject, on: boolean) => void) => {
+      q<HTMLInputElement>(sel).addEventListener('change', () => {
+        const c = this.cardCuboid();
+        if (c) apply(c, q<HTMLInputElement>(sel).checked);
+      });
+    };
+    bindFlag('#sc-w', (c, on) => { c.showW = on; });
+    bindFlag('#sc-d', (c, on) => { c.showD = on; });
+    bindFlag('#sc-h', (c, on) => { c.showH = on; });
+    bindFlag('#sc-vol', (c, on) => { c.showVolume = on; });
+    q('#sc-del').addEventListener('click', () => {
+      const c = this.cardCuboid();
+      if (c && this.ctx && this.ctx.restrictions.construct) {
+        this.ctx.session.removeObject(c.id);
+        this.hideCard();
+      }
+    });
+  }
+
+  private cardCuboid(): CuboidObject | null {
+    if (!this.ctx || !this.cardId) return null;
+    const o = this.ctx.session.objects.get(this.cardId);
+    return o?.kind === 'cuboid' ? o : null;
+  }
+
+  private openCard(c: CuboidObject, x: number, y: number): void {
+    if (!this.card || !this.ctx) return;
+    this.cardId = c.id;
+    const q = <T extends HTMLElement>(sel: string) => this.card!.querySelector<T>(sel)!;
+    q('#sc-title').textContent = c.label;
+    q<HTMLInputElement>('#sc-w').checked = c.showW;
+    q<HTMLInputElement>('#sc-d').checked = c.showD;
+    q<HTMLInputElement>('#sc-h').checked = c.showH;
+    q<HTMLInputElement>('#sc-vol').checked = c.showVolume;
+    (q('#sc-del') as HTMLButtonElement).hidden = !this.ctx.restrictions.construct;
+    const host = this.card.parentElement!;
+    this.card.hidden = false;
+    this.card.style.left = `${Math.min(Math.max(x, 10), host.clientWidth - 280)}px`;
+    this.card.style.top = `${Math.min(Math.max(y + 12, 10), host.clientHeight - 230)}px`;
+  }
+
+  private hideCard(): void {
+    if (this.card) this.card.hidden = true;
+    this.cardId = null;
   }
 
   // ---------- геометрия ----------
@@ -213,7 +273,13 @@ export class SpaceScene implements Scene {
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
     if (p.button === 2) {
-      if (this.ctx.hand.toolId) this.ctx.dropHand();
+      if (this.ctx.hand.toolId) {
+        this.ctx.dropHand();
+        return;
+      }
+      const body = this.hitBody(p.x, p.y);
+      if (body) this.openCard(body, p.x, p.y);
+      else this.hideCard();
       return;
     }
     if (p.button !== 0) return;
@@ -246,6 +312,7 @@ export class SpaceScene implements Scene {
     }
 
     const body = this.hitBody(p.x, p.y);
+    if (!body) this.hideCard();
     if (body) {
       const a = this.anchorOf(body);
       this.gesture = {
@@ -280,9 +347,14 @@ export class SpaceScene implements Scene {
       return;
     }
     if (!g.moved) {
-      // клик без движения — выделение
-      this.selection.clear();
-      if (!g.wasSelected) this.selection.add(g.id);
+      // клик: невыделенное — выделить, по выделенному — карточка настроек
+      if (g.wasSelected) {
+        const c = this.ctx.session.objects.get(g.id);
+        if (c?.kind === 'cuboid') this.openCard(c, this.pointer.x, this.pointer.y);
+      } else {
+        this.selection.clear();
+        this.selection.add(g.id);
+      }
     }
   }
 
@@ -326,7 +398,9 @@ export class SpaceScene implements Scene {
     const d = c.d.toNumber();
     const hh = c.h.toNumber();
     const dims = cuboidDims(c);
-    const stroke = selected ? theme.accent : theme.textSecondary;
+    const stroke = selected ? theme.accentBorder : theme.textSecondary;
+    if (!selected) g.globalAlpha = 0.75;
+    if (selected) { g.shadowColor = theme.accentGlow; g.shadowBlur = 12; }
 
     if (dims === 1) {
       const a = this.iso(c, 0, 0, 0);
@@ -348,7 +422,7 @@ export class SpaceScene implements Scene {
       faces.forEach((poly, i) => {
         g.fillStyle = shades[i] ?? shades[0]!;
         g.strokeStyle = stroke;
-        g.lineWidth = selected ? 2.5 : 1.8;
+        g.lineWidth = selected ? 3 : 1.6;
         g.beginPath();
         g.moveTo(poly[0]!.x, poly[0]!.y);
         for (const pt of poly.slice(1)) g.lineTo(pt.x, pt.y);
@@ -358,6 +432,8 @@ export class SpaceScene implements Scene {
       });
       this.drawGrids(g, c, w, d, hh, dims);
     }
+    g.shadowBlur = 0;
+    g.globalAlpha = 1;
 
     if (this.showSlice) this.drawSlice(g, c);
 

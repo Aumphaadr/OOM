@@ -1,3 +1,16 @@
+/* Inter — поставляется с проектом: вариативный (вес 100–900 одним файлом),
+   сабсет латиница+кириллица+матсимволы (113 КБ против 855 КБ полного TTF).
+   Лицензия SIL OFL 1.1 — рядом (fonts/OFL.txt) и в поставке (OFL-Inter.txt).
+   Курсив не поставляется: единственные курсивные подписи (x/y на осях)
+   браузер синтезирует наклоном. */
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/InterVariable-subset.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Палитра — перенос из idea/style-notes.md: зелёная лестница фонов + квартеты */
 :root {
   --bg-primary: #070f09;
