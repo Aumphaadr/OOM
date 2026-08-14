@@ -764,7 +764,7 @@ export class PlaneScene implements Scene {
     g.lineTo(this.origin.x - 5, 12);
     g.lineTo(this.origin.x + 5, 12);
     g.closePath(); g.fill();
-    g.font = 'italic bold 14px Inter, sans-serif';
+    g.font = 'bold 14px Inter, sans-serif';
     g.textAlign = 'right';
     g.textBaseline = 'bottom';
     g.fillText('x', w - 6, this.origin.y - 8);

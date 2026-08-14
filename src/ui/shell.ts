@@ -280,7 +280,13 @@ export class Shell {
     const varName = document.getElementById('var-name') as HTMLInputElement;
     document.getElementById('spawn-var-btn')!.addEventListener('click', () => {
       const name = varName.value.trim() || 'a';
-      this.session.spawnVariable(name, Rational.of(-10), Rational.of(10), Rational.of(1));
+      const min = Rational.parse((document.getElementById('var-min') as HTMLInputElement).value);
+      const max = Rational.parse((document.getElementById('var-max') as HTMLInputElement).value);
+      const step = Rational.parse((document.getElementById('var-step') as HTMLInputElement).value);
+      if (!min || !max || !step) return this.say('Диапазон переменной: нужны числа (мин, макс, шаг).');
+      if (min.compare(max) >= 0) return this.say('Минимум должен быть меньше максимума.');
+      if (step.sign() <= 0) return this.say('Шаг ползунка должен быть положительным.');
+      this.session.spawnVariable(name, min, max, step);
       // следующая буква наготове: a → b → c…
       if (/^[a-z]$/i.test(name) && name.toLowerCase() !== 'z') {
         varName.value = String.fromCharCode(name.charCodeAt(0) + 1);
