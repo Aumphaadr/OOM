@@ -62,6 +62,8 @@ export class ConveyorScene implements Scene {
     { toolId: null, x: 0.5 },
   ];
   private reversed = false;
+  /** Множитель скорости ленты и возврата в док (регулятор в панели). */
+  private speedK = 2;
   private reverseBtn: HTMLButtonElement | null = null;
   private countLabel: HTMLElement | null = null;
 
@@ -185,6 +187,14 @@ export class ConveyorScene implements Scene {
       <h3>Конвейер</h3>
       <button id="belt-reverse" class="btn ghost"></button>
       <div class="series-row">
+        <span class="field">скорость</span>
+        <select id="belt-speed" style="flex:1">
+          <option value="1">1× — не спеша</option>
+          <option value="2" selected>2× — бодро</option>
+          <option value="4">4× — вжух</option>
+        </select>
+      </div>
+      <div class="series-row">
         <span class="field">участков: <b id="section-count"></b></span>
         <button id="section-add" class="btn ghost">+</button>
         <button id="section-del" class="btn ghost">−</button>
@@ -210,6 +220,9 @@ export class ConveyorScene implements Scene {
     this.reverseBtn.addEventListener('click', () => {
       this.reversed = !this.reversed;
       this.updatePanel();
+    });
+    root.querySelector<HTMLSelectElement>('#belt-speed')!.addEventListener('change', (e) => {
+      this.speedK = Number((e.target as HTMLSelectElement).value) || 2;
     });
     const loopBox = root.querySelector<HTMLInputElement>('#belt-loop')!;
     const lapsInput = root.querySelector<HTMLInputElement>('#belt-laps')!;
@@ -447,7 +460,7 @@ export class ConveyorScene implements Scene {
 
     for (const [id, ride] of this.rides) {
       if (ride.jammed) {
-        ride.dist -= (RIDE_SPEED * dt) / 1000;
+        ride.dist -= (RIDE_SPEED * this.speedK * dt) / 1000;
         if (ride.dist <= 0) {
           const obj = this.ctx.session.objects.get(id);
           // брошенным на ленту после клина некуда откатываться — домой
@@ -459,7 +472,7 @@ export class ConveyorScene implements Scene {
       }
 
       const beforePos = this.ridePos(ride);
-      ride.dist += (RIDE_SPEED * dt) / 1000;
+      ride.dist += (RIDE_SPEED * this.speedK * dt) / 1000;
       const afterPos = this.ridePos(ride);
 
       let beltStart = 0;
@@ -674,7 +687,7 @@ export class ConveyorScene implements Scene {
     this.heightPx = h;
 
     this.updateRides(dt);
-    this.beltDashOffset += ((this.reversed ? 1 : -1) * (RIDE_SPEED * dt)) / 1000;
+    this.beltDashOffset += ((this.reversed ? 1 : -1) * (RIDE_SPEED * this.speedK * dt)) / 1000;
 
     this.drawBelt(g);
     for (let i = 0; i < this.sections.length; i++) this.drawSection(g, i);

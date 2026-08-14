@@ -29,6 +29,8 @@ export class BoxesScene implements Scene {
   /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
   private readonly pan = { x: 0, y: 0 };
   private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
+  /** Зум колесом (к курсору); мир в «мировых пикселях». */
+  private zoom = 1;
   private unsubscribe: (() => void) | null = null;
 
   private pointer = { x: 0, y: 0, inside: false };
@@ -239,8 +241,10 @@ export class BoxesScene implements Scene {
     q('#vc-status').hidden = true;
     const host = this.varCard.parentElement!;
     this.varCard.hidden = false;
-    this.varCard.style.left = `${Math.min(Math.max(x, 10), host.clientWidth - 280)}px`;
-    this.varCard.style.top = `${Math.min(Math.max(y + 12, 10), host.clientHeight - 190)}px`;
+    const sx = x * this.zoom + this.pan.x;
+    const sy = y * this.zoom + this.pan.y;
+    this.varCard.style.left = `${Math.min(Math.max(sx, 10), host.clientWidth - 280)}px`;
+    this.varCard.style.top = `${Math.min(Math.max(sy + 12, 10), host.clientHeight - 190)}px`;
   }
 
   private hideVarCard(): void {
@@ -278,17 +282,33 @@ export class BoxesScene implements Scene {
 
   // ---------- ввод ----------
 
+  onWheel(x: number, y: number, deltaY: number): void {
+    const factor = deltaY < 0 ? 1.12 : 1 / 1.12;
+    const next = Math.min(4, Math.max(0.25, this.zoom * factor));
+    const wx = (x - this.pan.x) / this.zoom;
+    const wy = (y - this.pan.y) / this.zoom;
+    this.pan.x = x - wx * next;
+    this.pan.y = y - wy * next;
+    this.zoom = next;
+  }
+
   onPointerDown(raw: { x: number; y: number; button: number; shift?: boolean }): void {
     if (raw.button === 1) {
       this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
 
     if (p.button === 2) {
-      this.ctx.dropHand();
+      if (this.ctx.hand.toolId) {
+        this.ctx.dropHand();
+        return;
+      }
+      const target = this.boxAt(p.x, p.y);
+      if (target?.variable) this.openVarCard(target, p.x, p.y);
+      else this.hideVarCard();
       return;
     }
     if (p.button !== 0) return;
@@ -365,7 +385,7 @@ export class BoxesScene implements Scene {
       this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     this.pointer = { x: p.x, y: p.y, inside: true };
     if (this.sliderDrag) {
       this.slideTo(this.sliderDrag, p.x);
@@ -388,7 +408,7 @@ export class BoxesScene implements Scene {
       this.panDrag = null;
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     if (this.sliderDrag) {
       this.slideTo(this.sliderDrag, p.x, true); // фиксация: журнал + субтитр
       this.sliderDrag = null;
@@ -419,6 +439,7 @@ export class BoxesScene implements Scene {
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     g.save();
     g.translate(this.pan.x, this.pan.y);
+    g.scale(this.zoom, this.zoom);
     this.renderWorld(g, w, h, dt, now);
     g.restore();
   }
@@ -481,15 +502,17 @@ export class BoxesScene implements Scene {
     g.lineWidth = 1;
     // покрываем видимую область с учётом пана: полотно бесконечно
     const step = theme.gridStep;
-    const left = -this.pan.x;
-    const top = -this.pan.y;
+    const left = -this.pan.x / this.zoom;
+    const top = -this.pan.y / this.zoom;
+    const spanW = w / this.zoom;
+    const spanH = h / this.zoom;
     const x0 = Math.floor(left / step) * step;
     const y0 = Math.floor(top / step) * step;
-    for (let x = x0; x < left + w + step; x += step) {
-      g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + h); g.stroke();
+    for (let x = x0; x < left + spanW + step; x += step) {
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + spanH); g.stroke();
     }
-    for (let y = y0; y < top + h + step; y += step) {
-      g.beginPath(); g.moveTo(left, y); g.lineTo(left + w, y); g.stroke();
+    for (let y = y0; y < top + spanH + step; y += step) {
+      g.beginPath(); g.moveTo(left, y); g.lineTo(left + spanW, y); g.stroke();
     }
   }
 

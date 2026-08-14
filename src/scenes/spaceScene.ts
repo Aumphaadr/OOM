@@ -215,11 +215,17 @@ export class SpaceScene implements Scene {
     const w = c.w.toNumber();
     const d = c.d.toNumber();
     const h = c.h.toNumber();
-    const off = 0.55; // ручка чуть дальше кромки, чтобы не липла к граням
+    // Ручки живут у «своих» рёбер, рядом с цифрами размеров: ширина — над
+    // верхним передним ребром, высота — справа от правого ребра, глубина —
+    // у глубинного ребра. Позиция ручки на перетаскивание не влияет:
+    // протяжка проецируется на изометрическую ось (applySizeDrag).
+    const wp = this.iso(c, w / 2, 0, h);
+    const hp = this.iso(c, w, 0, h / 2);
+    const dp = this.iso(c, w, d / 2, 0);
     return [
-      { axis: 'w', p: this.iso(c, w + off, 0, 0) },
-      { axis: 'd', p: this.iso(c, 0, d + off, 0) },
-      { axis: 'h', p: this.iso(c, 0, 0, h + off) },
+      { axis: 'w', p: { x: wp.x, y: wp.y - 22 } },
+      { axis: 'h', p: { x: hp.x + 24, y: hp.y - (h === 0 ? 10 : 0) } },
+      { axis: 'd', p: { x: dp.x + 12, y: dp.y + 20 } },
     ];
   }
 
@@ -520,26 +526,19 @@ export class SpaceScene implements Scene {
       g.fillText(hnd.axis, hnd.p.x, hnd.p.y + 0.5);
     }
 
-    // Подписи рёбер
-    g.font = 'bold 12px Inter, sans-serif';
+    // Цифры размеров — вплотную к своим кругляшам-ручкам
+    const sizeText: Record<'w' | 'd' | 'h', string | null> = {
+      w: c.showW ? c.w.toDisplay() : null,
+      d: c.showD && !c.d.isZero() ? c.d.toDisplay() : null,
+      h: c.showH && !c.h.isZero() ? c.h.toDisplay() : null,
+    };
+    g.font = 'bold 13px Inter, sans-serif';
     g.fillStyle = selected ? theme.accent : theme.textPrimary;
-    const w = c.w.toNumber();
-    const d = c.d.toNumber();
-    const h = c.h.toNumber();
-    if (c.showW) {
-      const m = this.iso(c, w / 2, 0, 0);
-      g.textAlign = 'center'; g.textBaseline = 'top';
-      g.fillText(c.w.toDisplay(), m.x, m.y + 8);
-    }
-    if (c.showD && !c.d.isZero()) {
-      const m = this.iso(c, w, d / 2, 0);
-      g.textAlign = 'left'; g.textBaseline = 'top';
-      g.fillText(c.d.toDisplay(), m.x + 8, m.y + 4);
-    }
-    if (c.showH && !c.h.isZero()) {
-      const m = this.iso(c, 0, 0, h / 2);
-      g.textAlign = 'right'; g.textBaseline = 'middle';
-      g.fillText(c.h.toDisplay(), m.x - 8, m.y);
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    for (const hnd of this.handles(c)) {
+      const text = sizeText[hnd.axis];
+      if (text !== null) g.fillText(text, hnd.p.x + HANDLE_R + 5, hnd.p.y + 0.5);
     }
 
     // Имя и объём по этажам

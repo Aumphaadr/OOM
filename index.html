@@ -114,8 +114,11 @@
             <button id="spawn-btn" class="btn primary"><span class="ic" data-icon="plus"></span>Число</button>
           </div>
           <div class="spawn-row" id="var-row">
-            <input id="var-name" value="a" maxlength="2" style="max-width:52px" title="Имя переменной" />
-            <button id="spawn-var-btn" class="btn primary" title="Переменная с ползунком: −10…10, шаг 1"><span class="ic" data-icon="plus"></span>Переменная</button>
+            <input id="var-name" value="a" maxlength="2" style="max-width:40px" title="Имя переменной" />
+            <input id="var-min" value="-10" style="max-width:52px" title="Минимум" />
+            <input id="var-max" value="10" style="max-width:46px" title="Максимум" />
+            <input id="var-step" value="1" style="max-width:40px" title="Шаг ползунка" />
+            <button id="spawn-var-btn" class="btn primary" title="Создать переменную с ползунком (имя, мин, макс, шаг). Настройки готовой переменной — ПКМ по ней"><span class="ic" data-icon="plus"></span></button>
           </div>
           <button id="spawn-set-btn" class="btn ghost" title="Создать набор чисел">Набор 0…10</button>
           <button id="hit-all-btn" class="btn ghost" title="Ударить инструментом в руке по всем объектам">Ударить по всем</button>

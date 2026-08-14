@@ -33,6 +33,8 @@ export class TapesScene implements Scene {
   /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
   private readonly pan = { x: 0, y: 0 };
   private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
+  /** Зум колесом (к курсору); мир в «мировых пикселях». */
+  private zoom = 1;
   private unsubscribe: (() => void) | null = null;
   private pointer = { x: 0, y: 0, inside: false };
 
@@ -239,8 +241,8 @@ export class TapesScene implements Scene {
     this.syncPopup();
     const host = this.popup.parentElement!;
     this.popup.hidden = false;
-    const px = Math.min(Math.max(x + this.pan.x, 10), host.clientWidth - 250);
-    const py = Math.min(Math.max(y + this.pan.y + 14, 10), host.clientHeight - 170);
+    const px = Math.min(Math.max(x * this.zoom + this.pan.x, 10), host.clientWidth - 250);
+    const py = Math.min(Math.max(y * this.zoom + this.pan.y + 14, 10), host.clientHeight - 170);
     this.popup.style.left = `${px}px`;
     this.popup.style.top = `${py}px`;
   }
@@ -337,12 +339,22 @@ export class TapesScene implements Scene {
 
   // ---------- ввод ----------
 
+  onWheel(x: number, y: number, deltaY: number): void {
+    const factor = deltaY < 0 ? 1.12 : 1 / 1.12;
+    const next = Math.min(4, Math.max(0.25, this.zoom * factor));
+    const wx = (x - this.pan.x) / this.zoom;
+    const wy = (y - this.pan.y) / this.zoom;
+    this.pan.x = x - wx * next;
+    this.pan.y = y - wy * next;
+    this.zoom = next;
+  }
+
   onPointerDown(raw: { x: number; y: number; button: number }): void {
     if (raw.button === 1) {
       this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
     this.hidePopup();
@@ -377,7 +389,7 @@ export class TapesScene implements Scene {
       this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     this.pointer = { x: p.x, y: p.y, inside: true };
     if (this.pending) {
       const d = this.pending;
@@ -393,7 +405,7 @@ export class TapesScene implements Scene {
       this.panDrag = null;
       return;
     }
-    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
+    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     if (!this.ctx || !this.pending) return;
     const d = this.pending;
     this.pending = null;
@@ -418,6 +430,7 @@ export class TapesScene implements Scene {
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     g.save();
     g.translate(this.pan.x, this.pan.y);
+    g.scale(this.zoom, this.zoom);
     this.renderWorld(g, w, h, dt, now);
     g.restore();
   }
