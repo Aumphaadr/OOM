@@ -297,12 +297,13 @@ export class StatsScene implements Scene {
     const { baseline, scaleY } = this.layout();
     const n = list.length;
 
-    // Пол-ось
+    // Пол-ось — бесконечная: тянется по видимой области с учётом пана
+    const viewL = -this.pan.x;
     g.strokeStyle = theme.textSecondary;
     g.lineWidth = 2;
     g.beginPath();
-    g.moveTo(30, baseline);
-    g.lineTo(w - 30, baseline);
+    g.moveTo(viewL - 60, baseline);
+    g.lineTo(viewL + w + 60, baseline);
     g.stroke();
 
     // Линия среднего (точной дробью)
@@ -314,15 +315,15 @@ export class StatsScene implements Scene {
       g.lineWidth = 1.5;
       g.setLineDash([6, 5]);
       g.beginPath();
-      g.moveTo(30, y);
-      g.lineTo(w - 30, y);
+      g.moveTo(viewL - 60, y);
+      g.lineTo(viewL + w + 60, y);
       g.stroke();
       g.setLineDash([]);
       g.fillStyle = theme.gold;
       g.font = 'bold 12px Inter, sans-serif';
       g.textAlign = 'left';
       g.textBaseline = 'bottom';
-      g.fillText(`среднее = ${mean.toDisplay()}`, 34, y - 4);
+      g.fillText(`среднее = ${mean.toDisplay()}`, viewL + 34, y - 4);
     }
 
     // Сумма
@@ -332,7 +333,7 @@ export class StatsScene implements Scene {
       g.font = 'bold 13px Inter, sans-serif';
       g.textAlign = 'left';
       g.textBaseline = 'top';
-      g.fillText(`сумма набора = ${sum.toDisplay()}`, 34, 18);
+      g.fillText(`сумма набора = ${sum.toDisplay()}`, viewL + 34, -this.pan.y + 18);
     }
 
     // Середина шеренги (текущего порядка!)

@@ -109,6 +109,7 @@ export class PlaneScene implements Scene {
     | { type: 'vec-head'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean }
     | { type: 'vec-tail'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean;
         grabDX: number; grabDY: number }
+    | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean }
     | null = null;
   private lastClick = { time: 0, x: 0, y: 0 };
   private lastTrace = { time: 0, key: '' };
@@ -500,6 +501,10 @@ export class PlaneScene implements Scene {
       if (this.ctx.hand.toolId) this.ctx.dropHand();
       return;
     }
+    if (p.button === 1) { // СКМ — пан, как в GeoGebra
+      this.gesture = { type: 'pan', startX: p.x, startY: p.y, baseX: this.origin.x, baseY: this.origin.y };
+      return;
+    }
     if (p.button !== 0) return;
 
     // Молоток в руке: по точке — гомотетия/разворот, по стрелке — растяжка,
@@ -578,7 +583,8 @@ export class PlaneScene implements Scene {
         return;
       }
     }
-    this.gesture = { type: 'pan', startX: p.x, startY: p.y, baseX: this.origin.x, baseY: this.origin.y };
+    // ЛКМ по пустому месту — рамка выделения (пан переехал на СКМ)
+    this.gesture = { type: 'band', x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: this.shiftDown };
   }
 
   onPointerMove(p: { x: number; y: number; button: number }): void {
@@ -587,6 +593,11 @@ export class PlaneScene implements Scene {
     if (this.gesture.type === 'pan') {
       this.origin.x = this.gesture.baseX + (p.x - this.gesture.startX);
       this.origin.y = this.gesture.baseY + (p.y - this.gesture.startY);
+      return;
+    }
+    if (this.gesture.type === 'band') {
+      this.gesture.x1 = p.x;
+      this.gesture.y1 = p.y;
       return;
     }
     const g = this.gesture;
@@ -652,6 +663,28 @@ export class PlaneScene implements Scene {
     const g = this.gesture;
     this.gesture = null;
     if (g.type === 'pan') return;
+    if (g.type === 'band') {
+      const x0 = Math.min(g.x0, g.x1);
+      const x1 = Math.max(g.x0, g.x1);
+      const y0 = Math.min(g.y0, g.y1);
+      const y1 = Math.max(g.y0, g.y1);
+      if (!g.additive) this.selection.clear();
+      if (x1 - x0 > 6 || y1 - y0 > 6) {
+        const inside = (sp: { x: number; y: number }) =>
+          sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1;
+        for (const pt of this.points()) {
+          if (inside(this.toScreen(pt.x, pt.y))) this.selection.add(pt.id);
+        }
+        for (const v of this.vectors()) {
+          const t = this.tailOf(v);
+          const hd = this.headOf(v);
+          if (inside(this.worldToScreen(t.x, t.y)) && inside(this.worldToScreen(hd.x, hd.y))) {
+            this.selection.add(v.id);
+          }
+        }
+      }
+      return;
+    }
 
     if (g.moved) {
       if (g.type === 'point') {
@@ -854,6 +887,20 @@ export class PlaneScene implements Scene {
     // Стрелки и пунктиры их цепочек
     this.drawChainSums(g);
     for (const v of this.vectors()) this.drawVector(g, v);
+
+    // Рамка выделения
+    if (this.gesture?.type === 'band') {
+      const b = this.gesture;
+      g.save();
+      g.fillStyle = 'rgba(40, 220, 120, 0.08)';
+      g.strokeStyle = theme.accentBorder;
+      g.lineWidth = 1;
+      g.setLineDash([5, 5]);
+      g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+      g.strokeRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1 - b.x0), Math.abs(b.y1 - b.y0));
+      g.setLineDash([]);
+      g.restore();
+    }
 
     this.labels.draw(g, theme.gold);
 

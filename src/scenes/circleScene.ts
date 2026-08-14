@@ -250,17 +250,26 @@ export class CircleScene implements Scene {
     g.beginPath(); g.moveTo(cx, cy - r - 30); g.lineTo(cx, cy + r + 30); g.stroke();
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
 
-    // Подписи осей: единичный размах
+    // Подписи осей: засечки на ±1, цифры уведены с самой окружности
     g.fillStyle = theme.textSecondary;
+    g.lineWidth = 2;
+    for (const [tx, ty, vert] of [[cx + r, cy, 1], [cx - r, cy, 1], [cx, cy - r, 0], [cx, cy + r, 0]] as const) {
+      g.beginPath();
+      if (vert) { g.moveTo(tx, ty - 5); g.lineTo(tx, ty + 5); }
+      else { g.moveTo(tx - 5, ty); g.lineTo(tx + 5, ty); }
+      g.stroke();
+    }
     g.font = '11px Inter, sans-serif';
-    g.textAlign = 'center';
+    g.textAlign = 'left';
     g.textBaseline = 'top';
-    g.fillText('1', cx + r, cy + 6);
-    g.fillText('−1', cx - r, cy + 6);
+    g.fillText('1', cx + r + 7, cy + 7);
     g.textAlign = 'right';
-    g.textBaseline = 'middle';
-    g.fillText('1', cx - 6, cy - r);
-    g.fillText('−1', cx - 6, cy + r);
+    g.fillText('−1', cx - r - 7, cy + 7);
+    g.textAlign = 'left';
+    g.textBaseline = 'bottom';
+    g.fillText('1', cx + 9, cy - r - 5);
+    g.textBaseline = 'top';
+    g.fillText('−1', cx + 9, cy + r + 5);
 
     // Волна-размотка (до углов: их точки ложатся поверх)
     if (this.showWave) this.drawWave(g, w);

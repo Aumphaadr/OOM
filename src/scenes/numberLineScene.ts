@@ -326,6 +326,10 @@ export class NumberLineScene implements Scene {
       this.ctx.dropHand();
       return;
     }
+    if (p.button === 1) { // СКМ — пан, как в GeoGebra
+      this.gesture = { type: 'pan', startX: p.x, startCenter: this.centerValue };
+      return;
+    }
     if (p.button !== 0) return;
 
     if (this.ctx.hand.toolId) {

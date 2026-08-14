@@ -479,11 +479,17 @@ export class BoxesScene implements Scene {
   private drawGrid(g: CanvasRenderingContext2D, w: number, h: number): void {
     g.strokeStyle = theme.grid;
     g.lineWidth = 1;
-    for (let x = 0; x < w; x += theme.gridStep) {
-      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
+    // покрываем видимую область с учётом пана: полотно бесконечно
+    const step = theme.gridStep;
+    const left = -this.pan.x;
+    const top = -this.pan.y;
+    const x0 = Math.floor(left / step) * step;
+    const y0 = Math.floor(top / step) * step;
+    for (let x = x0; x < left + w + step; x += step) {
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + h); g.stroke();
     }
-    for (let y = 0; y < h; y += theme.gridStep) {
-      g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+    for (let y = y0; y < top + h + step; y += step) {
+      g.beginPath(); g.moveTo(left, y); g.lineTo(left + w, y); g.stroke();
     }
   }
 
