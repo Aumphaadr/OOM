@@ -411,6 +411,8 @@ export interface Tool {
   readonly steps?: readonly { op: PrimitiveOp; n: Rational }[];
   /** Режим «чёрный ящик»: подпись скрыта, субтитры показывают только «вход → выход». */
   hidden: boolean;
+  /** Счётчик состоявшихся ударов: у ×(−1) чёт/нечет читается как (−1)ⁿ. */
+  hits: number;
   /** null — применим ко всем; иначе текст причины отказа. */
   canApply(v: Rational): string | null;
   apply(v: Rational): Rational;
@@ -465,6 +467,7 @@ export function makeVarTool(op: VarOp, n: Rational, id?: string): Tool {
     n,
     label: toolLabel(op, n),
     hidden: false,
+    hits: 0,
     canApply: () => 'этому молотку нужен x — бей по уравнению',
     apply: (v: Rational) => v, // не вызывается: canApply всегда отказывает
     inverseSpec: () => null,   // в механике v1 (реверс, наклейки) не участвует
@@ -489,6 +492,7 @@ export function makeTool(op: PrimitiveOp, n: Rational, id?: string): Tool {
     n,
     label: toolLabel(op, n),
     hidden: false,
+    hits: 0,
     canApply(v: Rational): string | null {
       if (op === 'sqrt' && v.sign() < 0) return 'корень из отрицательного числа не существует';
       if (op === 'pow') {
@@ -577,6 +581,7 @@ export function makeCompositeTool(
     steps: steps.map((s) => ({ op: s.op, n: s.n })),
     label,
     hidden: false,
+    hits: 0,
     canApply(v: Rational): string | null {
       let cur = v;
       for (const p of prims) {

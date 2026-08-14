@@ -42,6 +42,10 @@ export class CanvasHost {
     canvas.addEventListener('pointermove', (e) => this.client?.onPointerMove?.(this.pointerInfo(e)));
     canvas.addEventListener('pointerup', (e) => this.client?.onPointerUp?.(this.pointerInfo(e)));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // СКМ — пан сцен: браузерный авто-скролл по средней кнопке не нужен
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 1) e.preventDefault();
+    });
     canvas.addEventListener('wheel', (e) => {
       if (!this.client?.onWheel) return;
       e.preventDefault();

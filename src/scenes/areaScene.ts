@@ -33,6 +33,9 @@ export class AreaScene implements Scene {
   readonly sidebar: { tools?: boolean; objects?: boolean } = { objects: false };
 
   private ctx: SceneContext | null = null;
+  /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
+  private readonly pan = { x: 0, y: 0 };
+  private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
   private unsubscribe: (() => void) | null = null;
   private pointer = { x: 0, y: 0, inside: false };
   private canvasEl: HTMLElement | null = null;
@@ -218,8 +221,10 @@ export class AreaScene implements Scene {
     (q('#ar-del') as HTMLButtonElement).hidden = !this.ctx.restrictions.construct;
     const host = this.card.parentElement!;
     this.card.hidden = false;
-    this.card.style.left = `${Math.min(Math.max(x, 10), host.clientWidth - 280)}px`;
-    this.card.style.top = `${Math.min(Math.max(y + 12, 10), host.clientHeight - 220)}px`;
+    const sx = x + this.pan.x;
+    const sy = y + this.pan.y;
+    this.card.style.left = `${Math.min(Math.max(sx, 10), host.clientWidth - 280)}px`;
+    this.card.style.top = `${Math.min(Math.max(sy + 12, 10), host.clientHeight - 220)}px`;
   }
 
   private hideCard(): void {
@@ -312,7 +317,12 @@ export class AreaScene implements Scene {
 
   // ---------- ввод ----------
 
-  onPointerDown(p: { x: number; y: number; button: number; shift?: boolean }): void {
+  onPointerDown(raw: { x: number; y: number; button: number; shift?: boolean }): void {
+    if (raw.button === 1) {
+      this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
 
@@ -373,7 +383,13 @@ export class AreaScene implements Scene {
     this.gesture = { type: 'band', x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: !!p.shift };
   }
 
-  onPointerMove(p: { x: number; y: number; button: number }): void {
+  onPointerMove(raw: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.pan.x = this.panDrag.bx + (raw.x - this.panDrag.sx);
+      this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     this.pointer = { x: p.x, y: p.y, inside: true };
     const g = this.gesture;
     if (!g || !this.ctx) return;
@@ -401,6 +417,10 @@ export class AreaScene implements Scene {
   }
 
   onPointerUp(_p: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.panDrag = null;
+      return;
+    }
     const g = this.gesture;
     this.gesture = null;
     if (!g || !this.ctx) return;
@@ -446,6 +466,13 @@ export class AreaScene implements Scene {
   // ---------- отрисовка ----------
 
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
+    g.save();
+    g.translate(this.pan.x, this.pan.y);
+    this.renderWorld(g, w, h, dt, now);
+    g.restore();
+  }
+
+  private renderWorld(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     if (!this.ctx) return;
 
     // Клетчатое поле

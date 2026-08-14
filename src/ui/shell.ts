@@ -53,6 +53,9 @@ export class Shell {
 
     session.on((e) => {
       if (e.kind === 'tool-added' || e.kind === 'tool-changed') this.renderTools();
+      if (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
+          e.kind === 'rect-changed' || e.kind === 'cuboid-changed' || e.kind === 'vector-changed' ||
+          e.kind === 'point-moved' || e.kind === 'angle-set' || e.kind === 'undo') this.renderTools();
       if (e.kind === 'tool-removed') {
         if (this.hand.toolId === e.toolId) this.hand.toolId = null;
         this.renderTools();
@@ -157,7 +160,8 @@ export class Shell {
     for (const tool of this.session.tools.values()) {
       const chip = document.createElement('button');
       chip.className = 'tool-chip' + (tool.id === this.hand.toolId ? ' in-hand' : '');
-      chip.innerHTML = `<span class="ic">${icon('hammer', 13)}</span>${visibleLabel(tool)}`;
+      const hits = tool.hits > 0 ? `<span class="chip-hits" title="ударов: ${tool.hits}">${tool.hits}</span>` : '';
+      chip.innerHTML = `<span class="ic">${icon('hammer', 13)}</span>${visibleLabel(tool)}${hits}`;
       const comboHint = tool.steps && !tool.hidden
         ? ` — комбо: ${tool.steps.map((s) => toolLabel(s.op, s.n)).join(' ∘ ')}`
         : '';
@@ -284,7 +288,7 @@ export class Shell {
     });
 
     document.getElementById('spawn-set-btn')!.addEventListener('click', () => {
-      for (let i = 10; i >= 0; i--) this.session.spawnObject(Rational.of(i));
+      for (let i = 0; i <= 10; i++) this.session.spawnObject(Rational.of(i));
     });
 
     document.getElementById('hit-all-btn')!.addEventListener('click', () => {

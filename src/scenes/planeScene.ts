@@ -151,7 +151,8 @@ export class PlaneScene implements Scene {
   private readonly wheelHandler = (e: WheelEvent): void => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(120, Math.max(10, this.scale * factor));
+    // зум без упоров: сетка сама перещёлкивает шаг 1-2-5
+    const next = Math.min(1e7, Math.max(1e-5, this.scale * factor));
     // зум к курсору: точка мира под курсором остаётся на месте
     const k = next / this.scale;
     this.origin.x = e.offsetX - (e.offsetX - this.origin.x) * k;
@@ -196,13 +197,13 @@ export class PlaneScene implements Scene {
         <label class="field">y<input id="pt-y" value="2" /></label>
         <button id="pt-spawn" class="btn primary"><span class="ic">${icon('plus', 12)}</span>Точка</button>
       </div>
-      <div class="series-row">
-        <button id="pt-flip-x" class="btn">🪞 от оси X</button>
-        <button id="pt-flip-y" class="btn">🪞 от оси Y</button>
+      <div class="series-row btns-even">
+        <button id="pt-flip-x" class="btn" title="Зеркало: отразить выделенные точки от оси X">↕ от X</button>
+        <button id="pt-flip-y" class="btn" title="Зеркало: отразить выделенные точки от оси Y">↔ от Y</button>
       </div>
-      <div class="series-row">
-        <button id="pt-rot-ccw" class="btn">⟲ 90° против часовой</button>
-        <button id="pt-rot-cw" class="btn">⟳ 90° по часовой</button>
+      <div class="series-row btns-even">
+        <button id="pt-rot-ccw" class="btn" title="Повернуть выделенные точки на 90° против часовой">⟲ 90°</button>
+        <button id="pt-rot-cw" class="btn" title="Повернуть выделенные точки на 90° по часовой">⟳ 90°</button>
       </div>
       <p class="hint">Адрес — пара чисел В СТРОГОМ ПОРЯДКЕ: вбок, потом вверх.
         Двойной клик по плоскости тоже ставит точку. Перенос — со снапом
@@ -377,6 +378,25 @@ export class PlaneScene implements Scene {
       if (fn) out.push({ fn, color: theme.accent });
     }
     return out;
+  }
+
+  /** Шаг сетки 1-2-5×10^k: клетка держится в коридоре 36…90 пикселей. */
+  private gridStep(): { step: number; decimals: number } {
+    let exp = 0;
+    let mant = 1;
+    const px = () => mant * Math.pow(10, exp) * this.scale;
+    while (px() < 36) {
+      if (mant === 1) mant = 2;
+      else if (mant === 2) mant = 5;
+      else { mant = 1; exp++; }
+    }
+    while (px() >= 90) {
+      if (mant === 5) mant = 2;
+      else if (mant === 2) mant = 1;
+      else { mant = 5; exp--; }
+    }
+    const decimals = Math.max(0, -exp);
+    return { step: mant * Math.pow(10, exp), decimals };
   }
 
   // ---------- координаты ----------
@@ -670,7 +690,7 @@ export class PlaneScene implements Scene {
     if (this.rotCcwBtn) this.rotCcwBtn.disabled = !anyPtSelected;
     if (this.rotCwBtn) this.rotCwBtn.disabled = !anyPtSelected;
 
-    const step = this.scale < 18 ? 5 : 1;
+    const { step, decimals } = this.gridStep();
     const px = this.scale * step;
 
     // Сетка
@@ -695,30 +715,52 @@ export class PlaneScene implements Scene {
     // Клетки под следом (этап D): полные клетки между следом и осью на [a; b]
     if (this.showCells && traces.length) this.drawCells(g, traces[traces.length - 1]!.fn);
 
-    // Оси
+    // Оси со стрелками и именами
     g.strokeStyle = theme.textSecondary;
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, this.origin.y); g.lineTo(w, this.origin.y); g.stroke();
     g.beginPath(); g.moveTo(this.origin.x, 0); g.lineTo(this.origin.x, h); g.stroke();
+    g.fillStyle = theme.textSecondary;
+    g.beginPath(); // стрелка оси X (вправо)
+    g.moveTo(w - 2, this.origin.y);
+    g.lineTo(w - 12, this.origin.y - 5);
+    g.lineTo(w - 12, this.origin.y + 5);
+    g.closePath(); g.fill();
+    g.beginPath(); // стрелка оси Y (вверх)
+    g.moveTo(this.origin.x, 2);
+    g.lineTo(this.origin.x - 5, 12);
+    g.lineTo(this.origin.x + 5, 12);
+    g.closePath(); g.fill();
+    g.font = 'italic bold 14px Inter, sans-serif';
+    g.textAlign = 'right';
+    g.textBaseline = 'bottom';
+    g.fillText('x', w - 6, this.origin.y - 8);
+    g.textAlign = 'left';
+    g.textBaseline = 'top';
+    g.fillText('y', this.origin.x + 10, 6);
 
     // Подписи целых на осях
     g.fillStyle = theme.textSecondary;
     g.font = '11px Inter, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'top';
-    const from = Math.ceil(-this.origin.x / px) * step;
-    const to = Math.floor((w - this.origin.x) / px) * step;
-    for (let v = from; v <= to; v += step) {
-      if (v === 0) continue;
-      g.fillText(String(v), this.origin.x + (v / step) * px, this.origin.y + 5);
+    const tick = (idx: number): string => {
+      const v = idx * step;
+      return decimals > 0 ? v.toFixed(decimals).replace('.', ',') : String(Math.round(v));
+    };
+    const fromI = Math.ceil(-this.origin.x / px);
+    const toI = Math.floor((w - this.origin.x) / px);
+    for (let i = fromI; i <= toI; i++) {
+      if (i === 0) continue;
+      g.fillText(tick(i), this.origin.x + i * px, this.origin.y + 5);
     }
     g.textAlign = 'right';
     g.textBaseline = 'middle';
-    const fromY = Math.ceil((this.origin.y - h) / px) * step;
-    const toY = Math.floor(this.origin.y / px) * step;
-    for (let v = fromY; v <= toY; v += step) {
-      if (v === 0) continue;
-      g.fillText(String(v), this.origin.x - 6, this.origin.y - (v / step) * px);
+    const fromYI = Math.ceil((this.origin.y - h) / px);
+    const toYI = Math.floor(this.origin.y / px);
+    for (let i = fromYI; i <= toYI; i++) {
+      if (i === 0) continue;
+      g.fillText(tick(i), this.origin.x - 6, this.origin.y - i * px);
     }
     // Начало координат
     g.fillStyle = theme.accent;

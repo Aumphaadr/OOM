@@ -30,6 +30,9 @@ export class TapesScene implements Scene {
   readonly sidebar = { tools: false, objects: false };
 
   private ctx: SceneContext | null = null;
+  /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
+  private readonly pan = { x: 0, y: 0 };
+  private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
   private unsubscribe: (() => void) | null = null;
   private pointer = { x: 0, y: 0, inside: false };
 
@@ -236,8 +239,8 @@ export class TapesScene implements Scene {
     this.syncPopup();
     const host = this.popup.parentElement!;
     this.popup.hidden = false;
-    const px = Math.min(Math.max(x, 10), host.clientWidth - 250);
-    const py = Math.min(Math.max(y + 14, 10), host.clientHeight - 170);
+    const px = Math.min(Math.max(x + this.pan.x, 10), host.clientWidth - 250);
+    const py = Math.min(Math.max(y + this.pan.y + 14, 10), host.clientHeight - 170);
     this.popup.style.left = `${px}px`;
     this.popup.style.top = `${py}px`;
   }
@@ -334,7 +337,12 @@ export class TapesScene implements Scene {
 
   // ---------- ввод ----------
 
-  onPointerDown(p: { x: number; y: number; button: number }): void {
+  onPointerDown(raw: { x: number; y: number; button: number }): void {
+    if (raw.button === 1) {
+      this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
     this.hidePopup();
@@ -363,7 +371,13 @@ export class TapesScene implements Scene {
     }
   }
 
-  onPointerMove(p: { x: number; y: number; button: number }): void {
+  onPointerMove(raw: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.pan.x = this.panDrag.bx + (raw.x - this.panDrag.sx);
+      this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     this.pointer = { x: p.x, y: p.y, inside: true };
     if (this.pending) {
       const d = this.pending;
@@ -374,7 +388,12 @@ export class TapesScene implements Scene {
     }
   }
 
-  onPointerUp(p: { x: number; y: number; button: number }): void {
+  onPointerUp(raw: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.panDrag = null;
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     if (!this.ctx || !this.pending) return;
     const d = this.pending;
     this.pending = null;
@@ -397,6 +416,13 @@ export class TapesScene implements Scene {
   // ---------- отрисовка ----------
 
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
+    g.save();
+    g.translate(this.pan.x, this.pan.y);
+    this.renderWorld(g, w, h, dt, now);
+    g.restore();
+  }
+
+  private renderWorld(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     if (!this.ctx) return;
 
     const list = this.tapes();

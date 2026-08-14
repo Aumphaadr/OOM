@@ -59,8 +59,7 @@ export class ConveyorScene implements Scene {
   private heightPx = 600;
 
   private sections: Section[] = [
-    { toolId: null, x: 0.36 },
-    { toolId: null, x: 0.64 },
+    { toolId: null, x: 0.5 },
   ];
   private reversed = false;
   private reverseBtn: HTMLButtonElement | null = null;
