@@ -24,6 +24,9 @@ export class StatsScene implements Scene {
   readonly sidebar: { tools?: boolean; objects?: boolean } = { objects: false };
 
   private ctx: SceneContext | null = null;
+  /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
+  private readonly pan = { x: 0, y: 0 };
+  private panDrag: { sx: number; sy: number; bx: number; by: number } | null = null;
   private unsubscribe: (() => void) | null = null;
   private widthPx = 800;
   private heightPx = 600;
@@ -178,7 +181,12 @@ export class StatsScene implements Scene {
 
   // ---------- ввод ----------
 
-  onPointerDown(p: { x: number; y: number; button: number }): void {
+  onPointerDown(raw: { x: number; y: number; button: number }): void {
+    if (raw.button === 1) {
+      this.panDrag = { sx: raw.x, sy: raw.y, bx: this.pan.x, by: this.pan.y };
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     if (!this.ctx) return;
     this.pointer = { x: p.x, y: p.y, inside: true };
     if (p.button === 2) {
@@ -214,14 +222,25 @@ export class StatsScene implements Scene {
     };
   }
 
-  onPointerMove(p: { x: number; y: number; button: number }): void {
+  onPointerMove(raw: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.pan.x = this.panDrag.bx + (raw.x - this.panDrag.sx);
+      this.pan.y = this.panDrag.by + (raw.y - this.panDrag.sy);
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     this.pointer = { x: p.x, y: p.y, inside: true };
     const g = this.gesture;
     if (!g) return;
     if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) >= DRAG_THRESHOLD) g.moved = true;
   }
 
-  onPointerUp(p: { x: number; y: number; button: number }): void {
+  onPointerUp(raw: { x: number; y: number; button: number }): void {
+    if (this.panDrag) {
+      this.panDrag = null;
+      return;
+    }
+    const p = { ...raw, x: raw.x - this.pan.x, y: raw.y - this.pan.y };
     if (!this.ctx || !this.gesture) return;
     const g = this.gesture;
     this.gesture = null;
@@ -261,6 +280,13 @@ export class StatsScene implements Scene {
   // ---------- отрисовка ----------
 
   render(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
+    g.save();
+    g.translate(this.pan.x, this.pan.y);
+    this.renderWorld(g, w, h, dt, now);
+    g.restore();
+  }
+
+  private renderWorld(g: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number): void {
     if (!this.ctx) return;
     this.widthPx = w;
     this.heightPx = h;

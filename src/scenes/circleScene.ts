@@ -337,6 +337,29 @@ export class CircleScene implements Scene {
     g.stroke();
     g.globalAlpha = 1;
 
+    // Волна тени (косинус): та же кривая, сдвинутая на 90° — видно глазами
+    if (this.showCos) {
+      g.strokeStyle = theme.textSecondary;
+      g.lineWidth = 1.5;
+      g.globalAlpha = 0.5;
+      g.setLineDash([7, 5]);
+      g.beginPath();
+      for (let x = x0; x <= x1; x += 2) {
+        const d = degMin + ((x - x0) / (x1 - x0)) * (degMax - degMin);
+        const y = sy(Math.cos((d * Math.PI) / 180));
+        if (x === x0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.stroke();
+      g.setLineDash([]);
+      g.globalAlpha = 1;
+      g.fillStyle = theme.textSecondary;
+      g.font = '11px Inter, sans-serif';
+      g.textAlign = 'right';
+      g.textBaseline = 'bottom';
+      g.fillText('пунктир — волна тени: та же, сдвинута на 90°', x1, sy(1) - 6);
+    }
+
     // Точки углов на волне + связь с окружностью
     const list = this.angles();
     for (let i = 0; i < list.length; i++) {
@@ -417,7 +440,7 @@ export class CircleScene implements Scene {
     // Высота (синус) — вертикаль от точки до пола
     if (this.showSin) {
       const sin = sinDeg(a.deg);
-      g.strokeStyle = theme.gold;
+      g.strokeStyle = color;
       g.lineWidth = 2;
       g.setLineDash([5, 4]);
       g.beginPath();
@@ -425,7 +448,7 @@ export class CircleScene implements Scene {
       g.lineTo(knob.x, cy);
       g.stroke();
       g.setLineDash([]);
-      g.fillStyle = theme.gold;
+      g.fillStyle = color;
       g.font = 'bold 12px Inter, sans-serif';
       g.textAlign = knob.x >= cx ? 'left' : 'right';
       g.textBaseline = 'middle';

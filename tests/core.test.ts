@@ -569,6 +569,28 @@ describe('Session', () => {
     expect(checkGoal(s, { kind: 'point-at', x: '1', y: '-3' })).toBe(true);
   });
 
+  it('счётчик ударов молотка: считает состоявшиеся, нейтральные и отказы — нет', () => {
+    const s = new Session();
+    const o = s.spawnObject(R(5));
+    const mulNeg = s.addTool('mul', R(-1));
+    expect(mulNeg.hits).toBe(0);
+    s.applyTool(mulNeg.id, o.id);
+    s.applyTool(mulNeg.id, o.id);
+    expect(mulNeg.hits).toBe(2); // чётный — знак вернулся: (−1)²
+
+    // отказ не считается ударом
+    const sqrt = s.addTool('sqrt', R(0));
+    s.applyTool(s.addTool('sub', R(6)).id, o.id); // 5 → −1
+    expect(s.applyTool(sqrt.id, o.id)).toBe(false);
+    expect(sqrt.hits).toBe(0);
+
+    // нейтральный удар по весам не считается
+    const u = s.spawnUnknown('x', R(3));
+    const mul1 = s.addTool('mul', R(1));
+    s.scalesApply(u.id, mul1.id, 'left');
+    expect(mul1.hits).toBe(0);
+  });
+
   it('структурный undo: создание отменяется, удалённое воскресает, импорт — не ходы', () => {
     const s = new Session();
     const o = s.spawnObject(R(7));

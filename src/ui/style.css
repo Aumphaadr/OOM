@@ -67,6 +67,17 @@ body {
   z-index: 50;
 }
 
+/* Счётчик состоявшихся ударов молотка: у ×(−1) чёт/нечет = знак (−1)ⁿ */
+.chip-hits {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* Меню «Доска»: все сохранения-загрузки под одной кнопкой */
 .board-menu { width: 260px; padding: 6px; }
 .board-menu .menu-item {
@@ -260,6 +271,8 @@ input:focus, select:focus {
 
 .series-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: flex-end; }
 .series-row .btn { margin-top: 0; width: auto; flex: 0 0 auto; }
+/* Ряды равных кнопок (зеркала и повороты точек): делят ширину поровну */
+.series-row.btns-even .btn { flex: 1 1 0; padding: 0 6px; white-space: nowrap; }
 label.field { flex: 1; min-width: 0; color: var(--text-secondary); }
 label.field input,
 label.field select { width: 100%; min-width: 0; margin-top: 2px; display: block; }

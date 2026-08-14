@@ -668,7 +668,8 @@ export class NumberLineScene implements Scene {
         // перенос между прямыми: значение (x) заперто, тащится только вертикаль
         cy = this.pointer.y - this.gesture.grabDy;
       } else {
-        const slot = `${line.id}:${Math.round(x / 6)}`;
+        // стопкой стоят ТОЛЬКО строго равные: слот — точное значение, не пиксели
+        const slot = `${line.id}:${obj.value.num}/${obj.value.den}`;
         const level = stacks.get(slot) ?? 0;
         stacks.set(slot, level + 1);
         cy = yBase - CHIP_R - lift - level * (CHIP_R * 2 + 5);

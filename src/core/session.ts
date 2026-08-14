@@ -332,6 +332,7 @@ export class Session {
     r.h = nh;
     r.cutsX = r.cutsX.map((c) => c.mul(k));
     r.cutsY = r.cutsY.map((c) => c.mul(k));
+    tool.hits++;
     this.applyLog.push({ objectId: r.id, kind: 'rect', before, after: this.rectState(r) });
     this.emit({
       kind: 'rect-changed',
@@ -401,6 +402,7 @@ export class Session {
     const after = tool.apply(before);
     obj.value = after;
     obj.trail.push(after);
+    tool.hits++;
     this.applyLog.push({ objectId: obj.id, kind: 'number', before, after });
     this.emit({ kind: 'tool-applied', objectId: obj.id, tool, before, after });
     return true;
@@ -572,6 +574,7 @@ export class Session {
       return true;
     }
 
+    tool.hits++;
     const before: UnknownState = { ops: [...u.ops], rhs: u.rhs, revealed: u.revealed };
     let snip = false;
     let snipped: { op: PrimitiveOp; n: Rational } | undefined;
@@ -725,6 +728,7 @@ export class Session {
     pt.x = tool.apply(pt.x);
     pt.y = tool.apply(pt.y);
     if (before.x.equals(pt.x) && before.y.equals(pt.y)) return true; // ×1 и точка в нуле — не ход
+    tool.hits++;
     this.applyLog.push({ objectId: pointId, kind: 'point', before, after: { x: pt.x, y: pt.y } });
 
     const k = tool.op === 'mul' ? tool.n : Rational.of(tool.n.den, tool.n.num);
@@ -802,6 +806,7 @@ export class Session {
       return null;
     }
     const out = tool.apply(input);
+    tool.hits++;
     const pt = this.spawnPoint(input, out);
     this.emit({
       kind: 'point-moved',
@@ -905,6 +910,7 @@ export class Session {
     c.w = nw;
     c.d = nd;
     c.h = nh;
+    tool.hits++;
     this.applyLog.push({ objectId: c.id, kind: 'cuboid', before, after: { w: c.w, d: c.d, h: c.h } });
 
     const dims = cuboidDims(c);
@@ -982,6 +988,7 @@ export class Session {
     const before: AngleState = { deg: a.deg };
     a.deg = tool.apply(a.deg);
     if (before.deg.equals(a.deg)) return true; // +0 и прочие нейтральные — не ход
+    tool.hits++;
     this.applyLog.push({ objectId: a.id, kind: 'angle', before, after: { deg: a.deg } });
     this.emit({
       kind: 'angle-set',
@@ -1059,6 +1066,7 @@ export class Session {
     const before: VectorState = { dx: v.dx, dy: v.dy };
     v.dx = tool.apply(v.dx);
     v.dy = tool.apply(v.dy);
+    tool.hits++;
     this.applyLog.push({ objectId, kind: 'vector', before, after: { dx: v.dx, dy: v.dy } });
 
     const flipped = tool.n.sign() < 0;
@@ -1162,6 +1170,7 @@ export class Session {
       return true;
     }
 
+    tool.hits++;
     const before: EquationState = { left: { ...eq.left }, right: { ...eq.right }, solved: eq.solved };
     if (side === 'left') eq.left = hit;
     else eq.right = hit;
