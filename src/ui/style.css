@@ -80,6 +80,55 @@ body {
   z-index: 50;
 }
 
+/* Панель «Функции» плоскости: цветная кнопка y=, поле формулы, мини-кнопки */
+.fn-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+.fn-row .fn-color {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font: inherit;
+  font-weight: 700;
+  color: #07130b;
+  cursor: pointer;
+}
+.fn-row .fn-formula { flex: 1; min-width: 0; font-variant-ligatures: none; }
+.fn-row .fn-formula.bad { border-color: var(--danger-border); box-shadow: 0 0 0 3px rgba(220, 100, 80, 0.2); }
+.fn-row .fn-mini {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.fn-row .fn-mini:hover { color: var(--text-primary); border-color: var(--accent-border); }
+
+/* Кастомный выбор цвета: поповер со свотчами (одинаков во всех браузерах) */
+.color-pop {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  grid-template-columns: repeat(5, 26px);
+  gap: 7px;
+  padding: 9px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.color-pop button {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+.color-pop button:hover { transform: scale(1.12); }
+
 /* Счётчик состоявшихся ударов молотка: у ×(−1) чёт/нечет = знак (−1)ⁿ */
 .chip-hits {
   margin-left: 6px;
@@ -177,6 +226,11 @@ button[data-icon] .icon { display: block; margin: 0 auto; }
   overflow-y: auto;
   overflow-x: hidden;
 }
+
+/* Контейнер сценной панели и мультипанельный корень — прозрачны для флекса
+   сайдбара: вложенные .panel-секции получают общий gap как самостоятельные */
+#panel-scene,
+.panels-split { display: contents; }
 
 .panel {
   background: var(--bg-tertiary);

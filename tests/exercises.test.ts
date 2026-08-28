@@ -38,7 +38,7 @@ function countSteps(s: Session, run: () => void): number {
       (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
         e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set' ||
         e.kind === 'point-moved' || e.kind === 'vector-changed' || e.kind === 'cuboid-changed' ||
-        e.kind === 'transfer' || e.kind === 'angle-set') &&
+        e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed') &&
       !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral);
     if (counted) steps++;
   });
@@ -65,6 +65,15 @@ const byValue = (s: Session, v: number) =>
 /** «Прогони вход» на плоскости i-м инструментом доски. */
 const traceIn = (s: Session, x: number, i = 0) =>
   s.tracePoint([...s.tools.values()][i]!.id, R(x));
+
+/** «Прогони вход» i-й функцией доски (probe: точка на след без молотка). */
+const probeIn = (s: Session, x: number, i = 0, den = 1) =>
+  s.probeFunction(objs(s).filter((o) => o.kind === 'function')[i]!.id, R(x, den));
+
+/** Прогон входа через ВСЕ функции доски (клик по оси). */
+const probeAll = (s: Session, x: number) => {
+  for (const o of objs(s)) if (o.kind === 'function') s.probeFunction(o.id, R(x));
+};
 
 /** Решатели: id упражнения (и id#cN / id#b для контрпримеров и обстрелов) → ходы. */
 const SOLVERS: Record<string, (s: Session) => void> = {
@@ -248,15 +257,15 @@ const SOLVERS: Record<string, (s: Session) => void> = {
   'pl-02': (s) => s.spawnPoint(R(3), R(2)),
   'pl-02#c0': (s) => { s.spawnPoint(R(2), R(3)); s.spawnPoint(R(3), R(2)); },
   'pl-02#b': (s) => { s.spawnPoint(R(-2), R(1)); s.spawnPoint(R(0), R(-3)); },
-  'tr-01': (s) => traceIn(s, 3),
-  'tr-02': (s) => { traceIn(s, 1, 0); traceIn(s, 1, 1); },
-  'tr-03': (s) => { traceIn(s, -3); traceIn(s, 3); },
-  'tr-03#c1': (s) => { traceIn(s, -5); traceIn(s, 5); },
-  'tr-03#c2': (s) => { traceIn(s, 1); traceIn(s, 2); },
-  'tr-03#b': (s) => traceIn(s, 0),
-  'tr-04': (s) => traceIn(s, 9),
-  'tr-04#c2': (s) => traceIn(s, 1),
-  'tr-04#b': (s) => traceIn(s, 0),
+  'tr-01': (s) => probeIn(s, 3),
+  'tr-02': (s) => probeAll(s, 1),
+  'tr-03': (s) => { probeIn(s, -3); probeIn(s, 3); },
+  'tr-03#c1': (s) => { probeIn(s, -5); probeIn(s, 5); },
+  'tr-03#c2': (s) => { probeIn(s, 1); probeIn(s, 2); },
+  'tr-03#b': (s) => probeIn(s, 0),
+  'tr-04': (s) => probeIn(s, 9),
+  'tr-04#c2': (s) => probeIn(s, 1),
+  'tr-04#b': (s) => probeIn(s, 0),
 
   'mv-01': (s) => {
     const pt = objs(s).find((o) => o.kind === 'point')!;
@@ -353,19 +362,16 @@ const SOLVERS: Record<string, (s: Session) => void> = {
   'mo-03#c0': (s) => { for (const o of objs(s)) s.pointApply(o.id, tool(s, 'mul').id); },
   'mo-03#b': (s) => s.pointApply(objs(s)[0]!.id, tool(s, 'mul').id),
 
-  'sl-01': (s) => { traceIn(s, 1); traceIn(s, 3); },
-  'sl-02': (s) => { traceIn(s, 1); traceIn(s, 3); },
-  'sl-02#c0': (s) => { traceIn(s, 0); traceIn(s, 1); },
-  'sl-02#c2': (s) => { traceIn(s, 1); traceIn(s, 2); },
-  'sl-02#b': (s) => {
-    traceIn(s, 1);
-    s.tracePoint([...s.tools.values()][0]!.id, R(3, 2));
-  },
+  'sl-01': (s) => { probeIn(s, 1); probeIn(s, 3); },
+  'sl-02': (s) => { probeIn(s, 1); probeIn(s, 3); },
+  'sl-02#c0': (s) => { probeIn(s, 0); probeIn(s, 1); },
+  'sl-02#c2': (s) => { probeIn(s, 1); probeIn(s, 2); },
+  'sl-02#b': (s) => { probeIn(s, 1); probeIn(s, 3, 0, 2); },
 
-  'cl-01': (s) => traceIn(s, 4),
-  'cl-02': (s) => traceIn(s, 6),
-  'cl-02#c0': (s) => traceIn(s, 3),
-  'cl-02#b': (s) => traceIn(s, 3),
+  'cl-01': (s) => probeIn(s, 4),
+  'cl-02': (s) => probeIn(s, 6),
+  'cl-02#c0': (s) => probeIn(s, 3),
+  'cl-02#b': (s) => probeIn(s, 3),
 
   'vol-01': (s) => {
     const c = objs(s)[0]!;
@@ -390,19 +396,19 @@ const SOLVERS: Record<string, (s: Session) => void> = {
   'vc-03#c1': (s) => s.vectorApply(objs(s)[0]!.id, tool(s, 'mul').id),
   'vc-03#b': (s) => s.vectorApply(objs(s)[0]!.id, tool(s, 'mul').id),
 
-  'rt-01': (s) => traceIn(s, 2),
-  'rt-02': (s) => { traceIn(s, -2); traceIn(s, 2); },
-  'rt-02#c0': (s) => traceIn(s, 0),
-  'rt-02#b': (s) => traceIn(s, 0),
-  'ineq-01': (s) => traceIn(s, 2),
-  'ineq-01#c0': (s) => traceIn(s, 1),
-  'ineq-01#c2': (s) => traceIn(s, 3),
-  'ineq-01#b': (s) => traceIn(s, -3),
+  'rt-01': (s) => probeIn(s, 2),
+  'rt-02': (s) => { probeIn(s, -2); probeIn(s, 2); },
+  'rt-02#c0': (s) => probeIn(s, 0),
+  'rt-02#b': (s) => probeIn(s, 0),
+  'ineq-01': (s) => probeIn(s, 2),
+  'ineq-01#c0': (s) => probeIn(s, 1),
+  'ineq-01#c2': (s) => probeIn(s, 3),
+  'ineq-01#b': (s) => probeIn(s, -3),
   'mt-01': (s) => s.spawnPoint(R(3), R(6)),
-  'mt-02': (s) => traceIn(s, 3, 0),
-  'mt-02#c1': (s) => { traceIn(s, 0, 0); traceIn(s, 0, 1); },
-  'mt-02#c2': (s) => { traceIn(s, 5, 0); traceIn(s, 5, 1); },
-  'mt-02#b': (s) => { traceIn(s, 1, 0); traceIn(s, 1, 1); },
+  'mt-02': (s) => probeIn(s, 3, 0),
+  'mt-02#c1': (s) => probeAll(s, 0),
+  'mt-02#c2': (s) => probeAll(s, 5),
+  'mt-02#b': (s) => probeAll(s, 1),
 
   'pl-03': (s) => {
     s.spawnPoint(R(1), R(1)); s.spawnPoint(R(5), R(1));

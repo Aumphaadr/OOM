@@ -107,7 +107,7 @@ export class Reader {
         (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
           e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set' ||
           e.kind === 'point-moved' || e.kind === 'vector-changed' || e.kind === 'cuboid-changed' ||
-          e.kind === 'transfer' || e.kind === 'angle-set') &&
+          e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed') &&
         !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral); // нейтральный удар — не ход
 
       if (this.phase === 'experiment') {
@@ -123,7 +123,8 @@ export class Reader {
           }
         }
       } else if (this.phase === 'counter' && this.counterOf !== null &&
-                 (counted || e.kind === 'tool-rejected' || e.kind === 'tape-refused')) {
+                 (counted || e.kind === 'tool-rejected' || e.kind === 'tape-refused' ||
+                  e.kind === 'function-refused')) {
         // Контрпример считается предъявленным, когда его цель достигнута
         // (или после первого же хода/отказа, если цели нет): отказ инструмента
         // или линейки — тоже опровержение («√ из −9», «линейка /10 к резу 1/4»).

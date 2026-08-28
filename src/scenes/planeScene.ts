@@ -2,7 +2,8 @@ import { Scene, SceneContext } from './scene';
 import { theme } from '../render/theme';
 import { drawHammer } from '../render/hammer';
 import { FlyingLabels, wobbleAngle } from '../render/motion';
-import { PointObject, VectorObject, Tool, PrimitiveOp, visibleLabel } from '../core/model';
+import { PointObject, VectorObject, FunctionObject, Tool, PrimitiveOp, visibleLabel } from '../core/model';
+import { parseFormula, evalNum, FormulaNode } from '../core/formula';
 import { Rational } from '../core/rational';
 import { icon } from '../ui/icons';
 
@@ -14,8 +15,11 @@ const AXIS_HIT = 16;
 const VEC_END_R = 11;    // захват головы/хвоста стрелки
 const VEC_SHAFT_R = 7;   // захват древка
 const CHAIN_SNAP = 0.45; // прилипание хвоста к чужому носу, в клетках
-const MAX_PINNED = 3;
-const PIN_COLORS = ['#4fc3f7', '#ff9e64', '#9ece6a'];
+/** Свотчи выбора цвета функции: фиксированная палитра, одинаковая во всех браузерах. */
+const SWATCHES = [
+  '#4fc3f7', '#ff9e64', '#9ece6a', '#f7768e', '#bb9af7',
+  '#e0af68', '#7dcfff', '#73daca', '#ff7a93', '#c0caf5',
+];
 const FILL_ABOVE = '#2ecc71';
 
 type NumFn = (x: number) => number | null;
@@ -74,13 +78,6 @@ export function traceEval(tool: Tool): NumFn | null {
   };
 }
 
-interface PinnedTrace {
-  toolId: string;
-  label: string;
-  fn: NumFn;
-  color: string;
-}
-
 /**
  * Сцена «Плоскость» — этапы A «Адреса» и B «Следы» (docs/design-plane.md).
  * Точки-объекты с точными адресами; след инструмента, взятого в руку
@@ -90,7 +87,7 @@ interface PinnedTrace {
 export class PlaneScene implements Scene {
   readonly id = 'plane';
   readonly title = 'Плоскость';
-  readonly sidebar: { tools?: boolean; objects?: boolean } = { objects: false };
+  readonly sidebar: { tools?: boolean; objects?: boolean } = { tools: false, objects: false };
 
   private ctx: SceneContext | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -119,7 +116,12 @@ export class PlaneScene implements Scene {
   private pointer = { x: 0, y: 0, inside: false };
   private readonly labels = new FlyingLabels();
 
-  private readonly pinned: PinnedTrace[] = [];
+  /** Кэш разборов формул: id функции → {formula, ast}. */
+  private readonly astCache = new Map<string, { formula: string; ast: FormulaNode | null }>();
+  /** Черновики формул (живой предпросмотр при наборе; ход — по change). */
+  private readonly drafts = new Map<string, string>();
+  /** Анимации порождения: id функции → старт и направление. */
+  private readonly genAnims = new Map<string, { start: number; dir: 1 | -1 }>();
   private showRoots = false;
   private showMeets = false;
   private showFill = false;
@@ -127,8 +129,9 @@ export class PlaneScene implements Scene {
   private showCells = false;
   private cellsA = 0;
   private cellsB = 4;
-  private pinBtn: HTMLButtonElement | null = null;
-  private pinList: HTMLElement | null = null;
+  private funcList: HTMLElement | null = null;
+  private colorPop: HTMLElement | null = null;
+  private colorPopFor: string | null = null;
   private sumBtn: HTMLButtonElement | null = null;
   private flipXBtn: HTMLButtonElement | null = null;
   private flipYBtn: HTMLButtonElement | null = null;
@@ -167,10 +170,16 @@ export class PlaneScene implements Scene {
     window.addEventListener('keyup', this.keyUpHandler);
     document.getElementById('stage')?.addEventListener('wheel', this.wheelHandler, { passive: false });
     this.unsubscribe = ctx.session.on((e) => {
-      if (e.kind === 'object-removed') this.selection.delete(e.objectId);
-      // закреплённый след живёт, пока жив его молоток (и пока тот не чёрный ящик)
-      if (e.kind === 'tool-removed') this.unpin((p) => p.toolId === e.toolId);
-      if (e.kind === 'tool-changed' && e.tool.hidden) this.unpin((p) => p.toolId === e.tool.id);
+      if (e.kind === 'object-removed') {
+        this.selection.delete(e.objectId);
+        this.genAnims.delete(e.objectId);
+        this.drafts.delete(e.objectId);
+      }
+      // список функций в панели следует за сессией (загрузка упражнений, undo)
+      if ((e.kind === 'object-spawned' && e.object.kind === 'function') ||
+          e.kind === 'object-removed' || e.kind === 'undo') {
+        this.refreshFuncList();
+      }
     });
   }
 
@@ -182,8 +191,9 @@ export class PlaneScene implements Scene {
     this.unsubscribe = null;
     this.ctx = null;
     this.gesture = null;
-    this.pinBtn = null;
-    this.pinList = null;
+    this.funcList = null;
+    this.colorPop?.remove();
+    this.colorPop = null;
     this.sumBtn = null;
     this.flipXBtn = null;
     this.flipYBtn = null;
@@ -191,12 +201,15 @@ export class PlaneScene implements Scene {
 
   buildPanel(): HTMLElement {
     const root = document.createElement('div');
+    root.className = 'panels-split';
+    root.dataset.panels = 'split';
     root.innerHTML = `
+      <section class="panel">
       <h3>Точки</h3>
       <div class="series-row">
-        <label class="field">x<input id="pt-x" value="3" /></label>
-        <label class="field">y<input id="pt-y" value="2" /></label>
-        <button id="pt-spawn" class="btn primary"><span class="ic">${icon('plus', 12)}</span>Точка</button>
+        <label class="field" title="Адрес: сколько вбок (первое число пары)">x<input id="pt-x" value="3" /></label>
+        <label class="field" title="Адрес: сколько вверх (второе число пары)">y<input id="pt-y" value="2" /></label>
+        <button id="pt-spawn" class="btn primary" title="Поставить точку по адресу (x; y)"><span class="ic">${icon('plus', 12)}</span>Точка</button>
       </div>
       <div class="series-row btns-even">
         <button id="pt-flip-x" class="btn" title="Зеркало: отразить выделенные точки от оси X">↕ от X</button>
@@ -208,41 +221,47 @@ export class PlaneScene implements Scene {
       </div>
       <p class="hint">Адрес — пара чисел В СТРОГОМ ПОРЯДКЕ: вбок, потом вверх.
         Двойной клик по плоскости тоже ставит точку. Перенос — со снапом
-        к целым (с Shift — к половинкам). Зеркала отражают выделенные точки;
-        молотки ×k и ÷k по точке — растяжение от нуля и разворот.
-        Колесо — зум, пустое место — пан.</p>
-      <h3>Стрелки</h3>
+        к шагу видимой сетки (приблизился до десятых — ходишь по десятым;
+        Shift — полшага). Зеркала и повороты действуют на выделенные точки.
+        Колесо — зум, СКМ — пан, ЛКМ по пустому — рамка выделения.</p>
+      </section>
+      <section class="panel">
+      <h3>Векторы</h3>
       <div class="series-row">
-        <label class="field">dx<input id="vc-dx" value="2" /></label>
-        <label class="field">dy<input id="vc-dy" value="1" /></label>
-        <button id="vc-spawn" class="btn primary"><span class="ic">${icon('plus', 12)}</span>Стрелка</button>
+        <label class="field" title="Команда: сколько вбок">dx<input id="vc-dx" value="2" /></label>
+        <label class="field" title="Команда: сколько вверх">dy<input id="vc-dy" value="1" /></label>
+        <button id="vc-spawn" class="btn primary" title="Создать вектор с командой (dx; dy)"><span class="ic">${icon('plus', 12)}</span>Вектор</button>
       </div>
       <div class="series-row">
-        <button id="vc-sum" class="btn">➕ Сумма выделенных</button>
+        <button id="vc-sum" class="btn" title="Сложить ровно ДВА выделенных вектора: новая стрелка = обе команды подряд (хвост к носу)">➕ Сумма выделенных</button>
       </div>
-      <p class="hint">Стрелка — команда «сколько вбок и сколько вверх» БЕЗ места:
+      <p class="hint">Вектор — команда «сколько вбок и сколько вверх» БЕЗ места:
         тащи её за древко куда угодно — команда не меняется. Голова меняет
         команду, хвост липнет к чужому носу — так стрелки складываются
         (выдели две и жми «Сумма»). А хвост, отпущенный НА ТОЧКЕ, выполняет
         команду: точка проходит путь и оказывается на носу.</p>
-      <h3>Следы</h3>
+      </section>
+      <section class="panel">
+      <h3>Функции</h3>
+      <div id="fn-list"></div>
       <div class="series-row">
-        <button id="tr-pin" class="btn">📌 Закрепить след</button>
+        <button id="fn-add" class="btn primary" title="Добавить функцию: пустая строка с полем формулы"><span class="ic">${icon('plus', 12)}</span>функция</button>
       </div>
-      <div id="tr-list"></div>
-      <label class="field tp-check"><input type="checkbox" id="tr-roots" /> проколы оси X</label>
-      <label class="field tp-check"><input type="checkbox" id="tr-meets" /> точки встречи</label>
-      <label class="field tp-check"><input type="checkbox" id="tr-fill" /> подсветить выше/ниже оси</label>
-      <label class="field tp-check"><input type="checkbox" id="tr-secant" /> секущая через 2 точки</label>
-      <label class="field tp-check"><input type="checkbox" id="tr-cells" /> клетки под следом</label>
+      <label class="field tp-check" title="Золотые кольца там, где след протыкает ось X (выход равен нулю) — это корни"><input type="checkbox" id="tr-roots" /> проколы оси X</label>
+      <label class="field tp-check" title="Кольца на пересечениях СЛЕДОВ ДРУГ С ДРУГОМ: входы, где две разные функции дают одинаковый выход. Нужны минимум две функции"><input type="checkbox" id="tr-meets" /> точки встречи</label>
+      <label class="field tp-check" title="Закрасить плоскость по выходам последнего следа: зелёное — выход положительный, красное — отрицательный"><input type="checkbox" id="tr-fill" /> подсветить выше/ниже оси</label>
+      <label class="field tp-check" title="Прямая через две выделенные точки (иначе — первые две на доске) с точной крутизной Δy/Δx"><input type="checkbox" id="tr-secant" /> секущая через 2 точки</label>
+      <label class="field tp-check" title="Закрасить и посчитать ПОЛНЫЕ клетки между следом и осью X на отрезке [от; до]"><input type="checkbox" id="tr-cells" /> клетки под следом</label>
       <div class="series-row" id="tr-cells-range" hidden>
-        <label class="field">от<input id="tr-cells-a" value="0" /></label>
-        <label class="field">до<input id="tr-cells-b" value="4" /></label>
+        <label class="field" title="Левый край отрезка для счёта клеток">от<input id="tr-cells-a" value="0" /></label>
+        <label class="field" title="Правый край отрезка для счёта клеток">до<input id="tr-cells-b" value="4" /></label>
       </div>
-      <p class="hint">Возьми молоток в руку — его след ляжет на плоскость:
-        молоток и его портрет — одно и то же. Клик молотком по оси X —
-        «прогони вход»: пара вход-выход становится точкой. След чёрного
-        ящика спрятан — прогоняй входы и разгадывай.</p>
+      <p class="hint">Функция — машина с паспортом-формулой, её след ложится
+        на плоскость своим цветом (кнопка «y =» выбирает цвет). Клик по оси X
+        или прямо по следу — «прогони вход»: пара вход-выход становится
+        точкой. ▶ проигрывает порождение следа по точкам, ✕ стирает функцию.
+        В формуле можно x, скобки, + − * / ^, sqrt(), cbrt(), abs().</p>
+      </section>
     `;
     root.querySelector<HTMLButtonElement>('#pt-spawn')!.addEventListener('click', () => {
       if (!this.ctx || !this.ctx.restrictions.construct) return;
@@ -294,9 +313,13 @@ export class PlaneScene implements Scene {
     this.rotCcwBtn!.addEventListener('click', () => rotate('ccw'));
     this.rotCwBtn!.addEventListener('click', () => rotate('cw'));
 
-    this.pinBtn = root.querySelector<HTMLButtonElement>('#tr-pin');
-    this.pinList = root.querySelector<HTMLElement>('#tr-list');
-    this.pinBtn!.addEventListener('click', () => this.pinHandTrace());
+    this.funcList = root.querySelector<HTMLElement>('#fn-list');
+    root.querySelector<HTMLButtonElement>('#fn-add')!.addEventListener('click', () => {
+      if (!this.ctx || !this.ctx.restrictions.construct) return;
+      this.ctx.session.spawnFunction('');
+      this.refreshFuncList(true);
+    });
+    this.buildColorPop();
     const bindCheck = (id: string, set: (v: boolean) => void): void => {
       root.querySelector<HTMLInputElement>(`#${id}`)!.addEventListener('change', (e) => {
         set((e.target as HTMLInputElement).checked);
@@ -318,7 +341,7 @@ export class PlaneScene implements Scene {
     };
     bindRange('tr-cells-a', (v) => { this.cellsA = v; });
     bindRange('tr-cells-b', (v) => { this.cellsB = v; });
-    this.refreshPinList();
+    this.refreshFuncList();
     return root;
   }
 
@@ -329,52 +352,116 @@ export class PlaneScene implements Scene {
     return this.ctx.session.tools.get(this.ctx.hand.toolId) ?? null;
   }
 
-  private canPin(): boolean {
-    const hand = this.handTool();
-    return !!hand && !hand.hidden && !!traceEval(hand) &&
-      this.pinned.length < MAX_PINNED && !this.pinned.some((p) => p.toolId === hand.id);
+  private funcObjs(): FunctionObject[] {
+    if (!this.ctx) return [];
+    return [...this.ctx.session.objects.values()]
+      .filter((o): o is FunctionObject => o.kind === 'function');
   }
 
-  private pinHandTrace(): void {
-    const hand = this.handTool();
-    if (!hand || !this.canPin()) return;
-    const fn = traceEval(hand);
-    if (!fn) return;
-    const used = new Set(this.pinned.map((p) => p.color));
-    const color = PIN_COLORS.find((c) => !used.has(c)) ?? PIN_COLORS[0]!;
-    this.pinned.push({ toolId: hand.id, label: hand.label, fn, color });
-    this.refreshPinList();
-  }
-
-  private unpin(match: (p: PinnedTrace) => boolean): void {
-    for (let i = this.pinned.length - 1; i >= 0; i--) {
-      if (match(this.pinned[i]!)) this.pinned.splice(i, 1);
+  /** Вычислитель следа функции (черновик набора важнее сохранённой формулы). */
+  private fnFor(f: FunctionObject): NumFn | null {
+    const formula = this.drafts.get(f.id) ?? f.formula;
+    const cached = this.astCache.get(f.id);
+    if (!cached || cached.formula !== formula) {
+      this.astCache.set(f.id, { formula, ast: parseFormula(formula) });
     }
-    this.refreshPinList();
+    const ast = this.astCache.get(f.id)!.ast;
+    return ast ? (x) => evalNum(ast, x) : null;
   }
 
-  private refreshPinList(): void {
-    if (!this.pinList) return;
-    this.pinList.innerHTML = '';
-    for (const p of this.pinned) {
+  /** Перестройка списка функций в панели (focus=true — фокус в последнее поле). */
+  private refreshFuncList(focus = false): void {
+    if (!this.funcList || !this.ctx) return;
+    this.funcList.innerHTML = '';
+    const construct = this.ctx.restrictions.construct;
+    for (const f of this.funcObjs()) {
       const row = document.createElement('div');
-      row.className = 'series-row';
+      row.className = 'fn-row';
+      const formula = this.drafts.get(f.id) ?? f.formula;
       row.innerHTML = `
-        <span style="color:${p.color}; font-weight:bold">▬ ${p.label}</span>
-        <button class="btn" title="снять след">✕</button>
+        <button class="fn-color" title="Цвет следа ${f.label}" style="background:${f.color}">y=</button>
+        <input class="fn-formula" spellcheck="false" placeholder="например: x^2 - 2(x+5) + 10" />
+        <button class="fn-mini fn-anim" title="Анимация порождения следа">▶</button>
+        <button class="fn-mini fn-del" title="Стереть функцию" ${construct ? '' : 'hidden'}>✕</button>
       `;
-      row.querySelector('button')!.addEventListener('click', () => {
-        this.unpin((q) => q === p);
+      const input = row.querySelector<HTMLInputElement>('.fn-formula')!;
+      input.value = formula;
+      const syncBad = (): void => {
+        const txt = input.value.trim();
+        input.classList.toggle('bad', txt !== '' && !parseFormula(txt));
+      };
+      syncBad();
+      input.addEventListener('input', () => {
+        this.drafts.set(f.id, input.value); // живой предпросмотр без хода
+        syncBad();
       });
-      this.pinList.appendChild(row);
+      input.addEventListener('change', () => {
+        this.drafts.delete(f.id);
+        this.ctx?.session.setFunctionFormula(f.id, input.value.trim()); // ход
+        syncBad();
+      });
+      row.querySelector<HTMLButtonElement>('.fn-color')!.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.openColorPop(f.id, ev.currentTarget as HTMLElement);
+      });
+      row.querySelector<HTMLButtonElement>('.fn-anim')!.addEventListener('click', () => {
+        const cur = this.genAnims.get(f.id);
+        this.genAnims.set(f.id, { start: performance.now(), dir: cur?.dir === 1 ? -1 : 1 });
+      });
+      row.querySelector<HTMLButtonElement>('.fn-del')!.addEventListener('click', () => {
+        this.ctx?.session.removeObject(f.id);
+      });
+      this.funcList.appendChild(row);
+    }
+    if (focus) {
+      const inputs = this.funcList.querySelectorAll<HTMLInputElement>('.fn-formula');
+      inputs[inputs.length - 1]?.focus();
     }
   }
 
-  /** Все следы на плоскости: закреплённые + след руки (если не чёрный ящик). */
+  /** Кастомный выбор цвета: поповер со свотчами — одинаков во всех браузерах. */
+  private buildColorPop(): void {
+    this.colorPop?.remove();
+    this.colorPop = document.createElement('div');
+    this.colorPop.className = 'color-pop';
+    this.colorPop.hidden = true;
+    for (const c of SWATCHES) {
+      const b = document.createElement('button');
+      b.style.background = c;
+      b.title = c;
+      b.addEventListener('click', () => {
+        if (this.colorPopFor) this.ctx?.session.setFunctionColor(this.colorPopFor, c);
+        this.colorPop!.hidden = true;
+        this.refreshFuncList();
+      });
+      this.colorPop.appendChild(b);
+    }
+    document.body.appendChild(this.colorPop);
+    document.addEventListener('click', (ev) => {
+      if (this.colorPop && !this.colorPop.hidden && !this.colorPop.contains(ev.target as Node)) {
+        this.colorPop.hidden = true;
+      }
+    });
+  }
+
+  private openColorPop(funcId: string, anchor: HTMLElement): void {
+    if (!this.colorPop) return;
+    this.colorPopFor = funcId;
+    const r = anchor.getBoundingClientRect();
+    this.colorPop.style.left = `${r.left}px`;
+    this.colorPop.style.top = `${r.bottom + 6}px`;
+    this.colorPop.hidden = false;
+  }
+
+  /** Все следы на плоскости: функции + след молотка в руке (упражнения). */
   private visibleTraces(): { fn: NumFn; color: string }[] {
-    const out: { fn: NumFn; color: string }[] = this.pinned.map((p) => ({ fn: p.fn, color: p.color }));
+    const out: { fn: NumFn; color: string }[] = [];
+    for (const f of this.funcObjs()) {
+      const fn = this.fnFor(f);
+      if (fn) out.push({ fn, color: f.color });
+    }
     const hand = this.handTool();
-    if (hand && !hand.hidden && !this.pinned.some((p) => p.toolId === hand.id)) {
+    if (hand && !hand.hidden) {
       const fn = traceEval(hand);
       if (fn) out.push({ fn, color: theme.accent });
     }
@@ -382,7 +469,7 @@ export class PlaneScene implements Scene {
   }
 
   /** Шаг сетки 1-2-5×10^k: клетка держится в коридоре 36…90 пикселей. */
-  private gridStep(): { step: number; decimals: number } {
+  private gridStep(): { step: number; decimals: number; rat: Rational } {
     let exp = 0;
     let mant = 1;
     const px = () => mant * Math.pow(10, exp) * this.scale;
@@ -397,7 +484,26 @@ export class PlaneScene implements Scene {
       else { mant = 5; exp--; }
     }
     const decimals = Math.max(0, -exp);
-    return { step: mant * Math.pow(10, exp), decimals };
+    const rat = exp >= 0
+      ? Rational.of(BigInt(mant) * 10n ** BigInt(exp))
+      : Rational.of(BigInt(mant), 10n ** BigInt(-exp));
+    return { step: mant * Math.pow(10, exp), decimals, rat };
+  }
+
+  /**
+   * Снап-шаг = текущему шагу сетки (Shift — половина шага): что видно
+   * глазами, по тому и ходим — приблизился до десятых, двигаешь по десятым.
+   */
+  private snapStep(): Rational {
+    const rat = this.gridStep().rat;
+    return this.shiftDown ? rat.div(Rational.of(2)) : rat;
+  }
+
+  /** Экранный X → мировой, прищёлкнутый к шагу сетки. */
+  private snapX(sx: number): Rational {
+    const step = this.snapStep();
+    const k = Math.round(((sx - this.origin.x) / this.scale) / step.toNumber());
+    return step.mul(Rational.of(k));
   }
 
   // ---------- координаты ----------
@@ -415,12 +521,13 @@ export class PlaneScene implements Scene {
     };
   }
 
-  /** Экран → мир со снапом: целые, с Shift — половинки. */
+  /** Экран → мир со снапом к шагу сетки (Shift — половина шага). */
   private toWorldSnapped(sx: number, sy: number): { x: Rational; y: Rational } {
-    const denom = this.shiftDown ? 2 : 1;
-    const wx = Math.round(((sx - this.origin.x) / this.scale) * denom);
-    const wy = Math.round(((this.origin.y - sy) / this.scale) * denom);
-    return { x: Rational.of(wx, denom), y: Rational.of(wy, denom) };
+    const step = this.snapStep();
+    const n = step.toNumber();
+    const kx = Math.round(((sx - this.origin.x) / this.scale) / n);
+    const ky = Math.round(((this.origin.y - sy) / this.scale) / n);
+    return { x: step.mul(Rational.of(kx)), y: step.mul(Rational.of(ky)) };
   }
 
   private points(): PointObject[] {
@@ -526,6 +633,36 @@ export class PlaneScene implements Scene {
         return;
       }
     }
+    // Рука пуста: клик по оси X или прямо по следу — «прогони вход» функциями
+    if (!handId && this.funcObjs().length > 0) {
+      const wx = this.snapX(p.x);
+      const key = wx.toDisplay();
+      const nearAxis = Math.abs(p.y - this.origin.y) <= AXIS_HIT;
+      const targets: FunctionObject[] = [];
+      if (nearAxis) {
+        targets.push(...this.funcObjs());
+      } else {
+        for (const f of this.funcObjs()) {
+          const fn = this.fnFor(f);
+          if (!fn) continue;
+          const y = fn(wx.toNumber());
+          if (y === null) continue;
+          if (Math.abs((this.origin.y - y * this.scale) - p.y) <= 10) targets.push(f);
+        }
+      }
+      if (targets.length > 0 && !this.pointAt(p.x, p.y) && !this.vectorHitAt(p.x, p.y)) {
+        const now = performance.now();
+        if (now - this.lastTrace.time < DBLCLICK_MS && this.lastTrace.key === key) return;
+        this.lastTrace = { time: now, key };
+        let ok = false;
+        for (const f of targets) {
+          if (this.ctx.session.probeFunction(f.id, wx)) ok = true;
+        }
+        this.labels.spawn(ok ? '⚙' : '⛔', p.x, this.origin.y - 10);
+        return;
+      }
+    }
+
     if (handId && Math.abs(p.y - this.origin.y) <= AXIS_HIT) {
       const w = this.toWorldSnapped(p.x, this.origin.y);
       const key = w.x.toDisplay();
@@ -623,10 +760,11 @@ export class PlaneScene implements Scene {
     const v = this.ctx?.session.objects.get(id);
     if (!v || v.kind !== 'vector') return null;
     const t = this.tailOf(v);
-    const denom = this.shiftDown ? 2 : 1;
-    const dx = Math.round(((sx - this.origin.x) / this.scale - t.x) * denom);
-    const dy = Math.round(((this.origin.y - sy) / this.scale - t.y) * denom);
-    return { dx: Rational.of(dx, denom), dy: Rational.of(dy, denom) };
+    const step = this.snapStep();
+    const n = step.toNumber();
+    const dx = Math.round((((sx - this.origin.x) / this.scale) - t.x) / n);
+    const dy = Math.round(((this.origin.y - sy) / this.scale - t.y) / n);
+    return { dx: step.mul(Rational.of(dx)), dy: step.mul(Rational.of(dy)) };
   }
 
   /**
@@ -715,7 +853,6 @@ export class PlaneScene implements Scene {
     this.heightPx = h;
     this.ensureOrigin();
     this.labels.update(dt);
-    if (this.pinBtn) this.pinBtn.disabled = !this.canPin();
     if (this.sumBtn) this.sumBtn.disabled = this.selectedVectors().length !== 2;
     const anyPtSelected = this.points().some((pt) => this.selection.has(pt.id));
     if (this.flipXBtn) this.flipXBtn.disabled = !anyPtSelected;
@@ -810,11 +947,21 @@ export class PlaneScene implements Scene {
       this.drawTrace(g, w, h, traces[i]!.fn, traces[i]!.color, isHand ? 0.85 : 0.6, isHand ? 2.5 : 2);
     }
 
+    // Анимация порождения следов: кружочки-входы поднимаются к выходам
+    this.drawGenAnims(g, w, now);
+
     // Чтение следов: проколы оси и точки встречи
     if (this.showRoots) {
       for (const t of traces) {
         for (const x of this.findRoots(t.fn, w)) this.drawMarker(g, x, 0, this.fmtNum(x));
       }
+    }
+    if (this.showMeets && traces.length < 2) {
+      g.fillStyle = theme.gold;
+      g.font = '12px Inter, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'top';
+      g.fillText('точки встречи: нужен ВТОРОЙ след — добавь ещё одну функцию', w / 2, 14);
     }
     if (this.showMeets) {
       for (let i = 0; i < traces.length; i++) {
@@ -1076,6 +1223,51 @@ export class PlaneScene implements Scene {
     g.textAlign = 'center';
     g.textBaseline = 'top';
     g.fillText(`полных клеток на [${a}; ${b}]: ${count}`, mid.x, mid.y + 22);
+  }
+
+  /**
+   * Порождение следа по точкам: на каждом видимом делении сетки кружок
+   * стартует с оси X и (с паузой 0,1 с между соседями, слева направо)
+   * поднимается к своему выходу. Повторное нажатие ▶ проигрывает обратно.
+   * Дыры следа честны: где значения нет, кружок не появляется вовсе.
+   */
+  private drawGenAnims(g: CanvasRenderingContext2D, w: number, now: number): void {
+    if (this.genAnims.size === 0) return;
+    const { step } = this.gridStep();
+    const RISE = 350;   // мс подъёма одного кружка
+    const STAGGER = 100; // пауза между соседями
+    for (const [id, anim] of this.genAnims) {
+      const f = this.ctx?.session.objects.get(id);
+      if (!f || f.kind !== 'function') { this.genAnims.delete(id); continue; }
+      const fn = this.fnFor(f);
+      if (!fn) continue;
+      const fromI = Math.ceil((-this.origin.x) / (this.scale * step));
+      const toI = Math.floor((w - this.origin.x) / (this.scale * step));
+      const count = toI - fromI + 1;
+      if (count <= 0 || count > 120) continue;
+      const elapsed = now - anim.start;
+      let allDone = true;
+      for (let i = fromI; i <= toI; i++) {
+        const x = i * step;
+        const y = fn(x);
+        if (y === null) continue; // дыра — входа с выходом нет
+        const local = (elapsed - (i - fromI) * STAGGER) / RISE;
+        const t = Math.max(0, Math.min(1, local));
+        if (t < 1) allDone = false;
+        const ease = 1 - (1 - t) * (1 - t);
+        const p = anim.dir === 1 ? ease : 1 - ease;
+        if (anim.dir === -1 && t >= 1) continue; // уехал домой — не рисуем
+        const sx = this.origin.x + x * this.scale;
+        const sy = this.origin.y - y * this.scale * p;
+        g.fillStyle = f.color;
+        g.globalAlpha = 0.9;
+        g.beginPath();
+        g.arc(sx, sy, 5, 0, Math.PI * 2);
+        g.fill();
+        g.globalAlpha = 1;
+      }
+      if (allDone && anim.dir === -1) this.genAnims.delete(id);
+    }
   }
 
   private drawTrace(

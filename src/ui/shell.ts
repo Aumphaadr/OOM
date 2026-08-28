@@ -101,6 +101,7 @@ export class Shell {
     (document.getElementById('combo-toggle') as HTMLElement).hidden = !on;
     if (!on) (document.getElementById('combo-forge') as HTMLElement).hidden = true;
     this.renderTools();
+    this.updatePanelVisibility();
   }
 
   private hit(objectId: string, toolId?: string): void {
@@ -121,23 +122,43 @@ export class Shell {
     this.host.setClient(next);
     this.renderTabs();
 
-    // Панель сцены в сайдбаре
+    // Панель сцены в сайдбаре: сцена может отдать НЕСКОЛЬКО секций
+    // (data-panels="split" — корень прозрачен, секции ложатся как родные)
     const holder = document.getElementById('panel-scene')!;
     holder.innerHTML = '';
     const panel = next.buildPanel?.();
     if (panel) {
-      holder.appendChild(panel);
+      if (panel.dataset.panels === 'split') {
+        holder.appendChild(panel);
+      } else {
+        const wrap = document.createElement('section');
+        wrap.className = 'panel';
+        wrap.appendChild(panel);
+        holder.appendChild(wrap);
+      }
       holder.hidden = false;
     } else {
       holder.hidden = true;
     }
 
-    // Общие панели — по заявке сцены (по умолчанию видны все)
-    const showTools = next.sidebar?.tools !== false;
-    const showObjects = next.sidebar?.objects !== false;
+    this.updatePanelVisibility();
+  }
+
+  /**
+   * Видимость общих панелей сайдбара. Сцена может скрыть молотки
+   * (sidebar.tools: false), но в ЗАПЕРТОМ упражнении с инструментами
+   * в заготовке панель возвращается: упражнения плоскости построены
+   * на «возьми молоток», а свободная доска там живёт своими панелями.
+   */
+  private updatePanelVisibility(): void {
+    const scene = this.activeScene;
+    if (!scene) return;
+    const exerciseTools = !this.restrictions.construct && this.session.tools.size > 0;
+    const showTools = scene.sidebar?.tools !== false || exerciseTools;
+    const showObjects = scene.sidebar?.objects !== false;
     document.getElementById('panel-tools')!.hidden = !showTools;
     document.getElementById('panel-objects')!.hidden = !showObjects;
-    if (!showTools) this.setHand(null); // в сцене без молотков рука пуста
+    if (!showTools && this.hand.toolId) this.setHand(null); // без панели рука пуста
   }
 
   private renderTabs(): void {
@@ -440,7 +461,10 @@ export class Shell {
       } else if (e.kind === 'var-set') {
         this.say(e.note, true);
       } else if (e.kind === 'rect-changed' || e.kind === 'point-moved' || e.kind === 'vector-changed' ||
-                 e.kind === 'cuboid-changed' || e.kind === 'transfer' || e.kind === 'angle-set') {
+                 e.kind === 'cuboid-changed' || e.kind === 'transfer' || e.kind === 'angle-set' ||
+                 e.kind === 'function-changed') {
+        this.say(e.note);
+      } else if (e.kind === 'function-refused') {
         this.say(e.note);
       } else if (e.kind === 'tape-refused') {
         this.say(`${e.object.label} отказалась: ${e.reason}`);

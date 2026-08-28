@@ -17,6 +17,11 @@ interface Pos { x: number; y: number } // scenePos: НИЖНИЙ ЛЕВЫЙ уг
 
 type Gesture =
   | { type: 'edge-h' | 'edge-w' | 'corner'; obj: RectObject }
+  | { type: 'edge-l'; obj: RectObject; fixRight: number }
+  | { type: 'edge-b'; obj: RectObject; fixTop: number }
+  | { type: 'corner-tl'; obj: RectObject; fixRight: number }
+  | { type: 'corner-br'; obj: RectObject; fixTop: number }
+  | { type: 'corner-bl'; obj: RectObject; fixRight: number; fixTop: number }
   | { type: 'body'; offsets: Map<string, Pos>; startX: number; startY: number; moved: boolean;
       rectId: string; wasSelected: boolean }
   | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean };
@@ -276,7 +281,8 @@ export class AreaScene implements Scene {
 
   /** Что под курсором у фигуры: кромка, рез, линия сетки или тело. */
   private hitPart(r: RectObject, x: number, y: number):
-    | { part: 'edge-h' | 'edge-w' | 'corner' | 'body' }
+    | { part: 'edge-h' | 'edge-w' | 'edge-l' | 'edge-b' | 'body' }
+    | { part: 'corner' | 'corner-tl' | 'corner-br' | 'corner-bl' }
     | { part: 'cut' | 'seam'; axis: 'x' | 'y'; pos: Rational }
     | null {
     const p = this.ensurePos(r);
@@ -284,9 +290,13 @@ export class AreaScene implements Scene {
     const hPx = r.h.toNumber() * PX;
     const top = p.y - hPx;
 
-    // Угол (верх-право): обе кромки разом
-    if (!r.h.isZero() && Math.hypot(x - (p.x + wPx), y - top) <= EDGE_HIT + 5) {
-      return { part: 'corner' };
+    // Углы: обе кромки разом (у каждого угла свои якоря на противоположных краях)
+    if (!r.h.isZero()) {
+      const c = EDGE_HIT + 5;
+      if (Math.hypot(x - (p.x + wPx), y - top) <= c) return { part: 'corner' };
+      if (Math.hypot(x - p.x, y - top) <= c) return { part: 'corner-tl' };
+      if (Math.hypot(x - (p.x + wPx), y - p.y) <= c) return { part: 'corner-br' };
+      if (Math.hypot(x - p.x, y - p.y) <= c) return { part: 'corner-bl' };
     }
     // Верхняя кромка (у отрезка — ручка над серединой)
     if (r.h.isZero()) {
@@ -297,6 +307,13 @@ export class AreaScene implements Scene {
     // Правая кромка
     if (Math.abs(x - (p.x + wPx)) <= EDGE_HIT && y >= top && y <= p.y && !r.h.isZero()) {
       return { part: 'edge-w' };
+    }
+    // Левая кромка и нижняя: рост в другую сторону (якорь — противоположный край)
+    if (Math.abs(x - p.x) <= EDGE_HIT && y >= top && y <= p.y && !r.h.isZero()) {
+      return { part: 'edge-l' };
+    }
+    if (Math.abs(y - p.y) <= EDGE_HIT && x >= p.x && x <= p.x + wPx && !r.h.isZero()) {
+      return { part: 'edge-b' };
     }
     if (x < p.x - 4 || x > p.x + wPx + 4 || y < top - 4 || y > p.y + 4) return null;
 
@@ -373,6 +390,35 @@ export class AreaScene implements Scene {
         this.gesture = { type: hit.part, obj: r };
         return;
       }
+      if (hit?.part === 'edge-l') {
+        const pos = this.ensurePos(r);
+        this.gesture = { type: 'edge-l', obj: r, fixRight: pos.x + r.w.toNumber() * PX };
+        return;
+      }
+      if (hit?.part === 'edge-b') {
+        const pos = this.ensurePos(r);
+        this.gesture = { type: 'edge-b', obj: r, fixTop: pos.y - r.h.toNumber() * PX };
+        return;
+      }
+      if (hit?.part === 'corner-tl') {
+        const pos = this.ensurePos(r);
+        this.gesture = { type: 'corner-tl', obj: r, fixRight: pos.x + r.w.toNumber() * PX };
+        return;
+      }
+      if (hit?.part === 'corner-br') {
+        const pos = this.ensurePos(r);
+        this.gesture = { type: 'corner-br', obj: r, fixTop: pos.y - r.h.toNumber() * PX };
+        return;
+      }
+      if (hit?.part === 'corner-bl') {
+        const pos = this.ensurePos(r);
+        this.gesture = {
+          type: 'corner-bl', obj: r,
+          fixRight: pos.x + r.w.toNumber() * PX,
+          fixTop: pos.y - r.h.toNumber() * PX,
+        };
+        return;
+      }
       if (hit?.part === 'cut') {
         if (this.ctx.session.mergeRect(r.id, hit.axis, hit.pos)) this.labels.spawn('∪', p.x, p.y - 24);
         return;
@@ -429,6 +475,40 @@ export class AreaScene implements Scene {
       const w = Rational.of(Math.round(((p.x - pos.x) / PX) * 2), 2);
       const h = Rational.of(Math.round(((pos.y - p.y) / PX) * 2), 2);
       this.ctx.session.setRectSize(g.obj.id, w, h, false);
+    } else if (g.type === 'edge-l') {
+      const w = Rational.of(Math.round(((g.fixRight - p.x) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, w, g.obj.h, false);
+      const pos = this.ensurePos(g.obj);
+      pos.x = g.fixRight - g.obj.w.toNumber() * PX; // правый край стоит на месте
+      g.obj.scenePos.set(this.id, pos);
+    } else if (g.type === 'edge-b') {
+      const h = Rational.of(Math.round(((p.y - g.fixTop) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, g.obj.w, h, false);
+      const pos = this.ensurePos(g.obj);
+      pos.y = g.fixTop + g.obj.h.toNumber() * PX; // верх стоит на месте
+      g.obj.scenePos.set(this.id, pos);
+    } else if (g.type === 'corner-tl') {
+      const pos = this.ensurePos(g.obj);
+      const w = Rational.of(Math.round(((g.fixRight - p.x) / PX) * 2), 2);
+      const h = Rational.of(Math.round(((pos.y - p.y) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, w, h, false);
+      pos.x = g.fixRight - g.obj.w.toNumber() * PX;
+      g.obj.scenePos.set(this.id, pos);
+    } else if (g.type === 'corner-br') {
+      const pos = this.ensurePos(g.obj);
+      const w = Rational.of(Math.round(((p.x - pos.x) / PX) * 2), 2);
+      const h = Rational.of(Math.round(((p.y - g.fixTop) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, w, h, false);
+      pos.y = g.fixTop + g.obj.h.toNumber() * PX;
+      g.obj.scenePos.set(this.id, pos);
+    } else if (g.type === 'corner-bl') {
+      const pos = this.ensurePos(g.obj);
+      const w = Rational.of(Math.round(((g.fixRight - p.x) / PX) * 2), 2);
+      const h = Rational.of(Math.round(((p.y - g.fixTop) / PX) * 2), 2);
+      this.ctx.session.setRectSize(g.obj.id, w, h, false);
+      pos.x = g.fixRight - g.obj.w.toNumber() * PX;
+      pos.y = g.fixTop + g.obj.h.toNumber() * PX;
+      g.obj.scenePos.set(this.id, pos);
     } else if (g.type === 'body') {
       if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) > DRAG_THRESHOLD) g.moved = true;
       if (g.moved) {
@@ -455,6 +535,21 @@ export class AreaScene implements Scene {
     if (g.type === 'edge-h' || g.type === 'edge-w' || g.type === 'corner') {
       // фиксация размеров: одна запись в журнал
       this.ctx.session.setRectSize(g.obj.id, g.obj.w, g.obj.h, true);
+      return;
+    }
+    if (g.type === 'edge-l' || g.type === 'edge-b' ||
+        g.type === 'corner-tl' || g.type === 'corner-br' || g.type === 'corner-bl') {
+      const opts = {
+        ...(g.type === 'edge-l' || g.type === 'corner-tl' || g.type === 'corner-bl'
+          ? { anchorX: 'right' as const } : {}),
+        ...(g.type === 'edge-b' || g.type === 'corner-br' || g.type === 'corner-bl'
+          ? { anchorY: 'top' as const } : {}),
+      };
+      this.ctx.session.setRectSize(g.obj.id, g.obj.w, g.obj.h, true, opts);
+      const pos = this.ensurePos(g.obj);
+      if ('fixRight' in g) pos.x = g.fixRight - g.obj.w.toNumber() * PX;
+      if ('fixTop' in g) pos.y = g.fixTop + g.obj.h.toNumber() * PX;
+      g.obj.scenePos.set(this.id, pos);
       return;
     }
     if (g.type === 'body' && !g.moved && g.wasSelected) {
@@ -551,16 +646,18 @@ export class AreaScene implements Scene {
     if (!this.canvasEl) return;
     let cursor = '';
     const gt = this.gesture?.type;
-    if (gt === 'edge-h') cursor = 'ns-resize';
-    else if (gt === 'edge-w') cursor = 'ew-resize';
-    else if (gt === 'corner') cursor = 'nesw-resize';
+    if (gt === 'edge-h' || gt === 'edge-b') cursor = 'ns-resize';
+    else if (gt === 'edge-w' || gt === 'edge-l') cursor = 'ew-resize';
+    else if (gt === 'corner' || gt === 'corner-bl') cursor = 'nesw-resize';
+    else if (gt === 'corner-tl' || gt === 'corner-br') cursor = 'nwse-resize';
     else if (gt === 'body') cursor = 'grabbing';
     else if (!hasHand && this.pointer.inside) {
       const r = this.rectAt(this.pointer.x, this.pointer.y);
       const hit = r ? this.hitPart(r, this.pointer.x, this.pointer.y) : null;
-      if (hit?.part === 'edge-h') cursor = 'ns-resize';
-      else if (hit?.part === 'edge-w') cursor = 'ew-resize';
-      else if (hit?.part === 'corner') cursor = 'nesw-resize';
+      if (hit?.part === 'edge-h' || hit?.part === 'edge-b') cursor = 'ns-resize';
+      else if (hit?.part === 'edge-w' || hit?.part === 'edge-l') cursor = 'ew-resize';
+      else if (hit?.part === 'corner' || hit?.part === 'corner-bl') cursor = 'nesw-resize';
+      else if (hit?.part === 'corner-tl' || hit?.part === 'corner-br') cursor = 'nwse-resize';
       else if (hit?.part === 'cut' || hit?.part === 'seam') cursor = 'pointer';
       else if (hit?.part === 'body') cursor = 'grab';
     }

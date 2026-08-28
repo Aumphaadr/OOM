@@ -40,6 +40,7 @@ export interface BoardJson {
         showW?: boolean; showD?: boolean; showH?: boolean; showVolume?: boolean;
         scenePos?: Record<string, { x: number; y: number }> }
     | { kind: 'angle'; deg: string }
+    | { kind: 'function'; formula: string; color?: string }
   )[];
 }
 
@@ -95,6 +96,8 @@ export function exportBoard(session: Session): string {
       data.objects.push({ kind: 'point', x: rStr(o.x), y: rStr(o.y) });
     } else if (o.kind === 'angle') {
       data.objects.push({ kind: 'angle', deg: rStr(o.deg) });
+    } else if (o.kind === 'function') {
+      data.objects.push({ kind: 'function', formula: o.formula, color: o.color });
     } else if (o.kind === 'vector') {
       data.objects.push({
         kind: 'vector', dx: rStr(o.dx), dy: rStr(o.dy),
@@ -183,6 +186,8 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         session.spawnPoint(rParse(o.x), rParse(o.y));
       } else if (o.kind === 'angle') {
         session.spawnAngle(rParse(o.deg));
+      } else if (o.kind === 'function') {
+        session.spawnFunction(o.formula, o.color);
       } else if (o.kind === 'vector') {
         const v = session.spawnVector(rParse(o.dx), rParse(o.dy));
         for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {
