@@ -1,11 +1,12 @@
 import { Rational, floorRational } from './rational';
 import {
   MathObject, NumberObject, TapeObject, UnknownObject, RectObject, EquationObject, PointObject, VectorObject,
-  CuboidObject, cuboidVolume, cuboidDims, AngleObject, sinDeg, degMod360, Tool,
+  CuboidObject, cuboidVolume, cuboidDims, AngleObject, sinDeg, degMod360, FunctionObject, Tool,
   makeTool, makeCompositeTool, makeVarTool, toolInvertsSticker, exprFor, toolLabel, subtitleFor,
   tapePieceLabels, tapeNumerator, rectPieceAreas, unknownValue, isNeutralAction, PrimitiveOp, VarOp,
   LinForm, linFormEval, linFormText,
 } from './model';
+import { parseFormula, evalRat } from './formula';
 
 /**
  * Журнал событий — единственный канал изменений модели.
@@ -31,6 +32,8 @@ export type SessionEvent =
   | { kind: 'cuboid-changed'; object: CuboidObject; note: string }
   | { kind: 'transfer'; from: NumberObject; to: NumberObject; note: string }
   | { kind: 'angle-set'; object: AngleObject; note: string }
+  | { kind: 'function-changed'; object: FunctionObject; note: string }
+  | { kind: 'function-refused'; object: FunctionObject; note: string }
   | { kind: 'undo'; objectId: string; note: string };
 
 export type SessionListener = (e: SessionEvent) => void;
@@ -56,6 +59,8 @@ interface CuboidState { w: Rational; d: Rational; h: Rational }
 
 interface AngleState { deg: Rational }
 
+interface FunctionState { formula: string }
+
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
   | { objectId: string; kind: 'tape'; before: TapeState; after: TapeState }
@@ -68,7 +73,8 @@ type LogEntry =
   | { objectId: string; kind: 'spawn' }
   | { objectId: string; kind: 'removal'; object: MathObject }
   | { kind: 'transfer'; fromId: string; toId: string; amount: Rational }
-  | { objectId: string; kind: 'angle'; before: AngleState; after: AngleState };
+  | { objectId: string; kind: 'angle'; before: AngleState; after: AngleState }
+  | { objectId: string; kind: 'function'; before: FunctionState; after: FunctionState };
 
 const TAPE_MODE_MIN = 1; // «/1» — целая лента без швов, резать нечего
 const TAPE_MODE_MAX = 100;
@@ -229,6 +235,7 @@ export class Session {
       : obj.kind === 'vector' ? `стрелка ${obj.label} убрана`
       : obj.kind === 'cuboid' ? `тело ${obj.label} убрано`
       : obj.kind === 'angle' ? `угол ${obj.label} снят с окружности`
+      : obj.kind === 'function' ? `функция ${obj.label} стёрта`
       : `число ${obj.value.toDisplay()} удалено`;
     if (!quiet) this.applyLog.push({ objectId: id, kind: 'removal', object: obj });
     this.objects.delete(id);
@@ -458,7 +465,10 @@ export class Session {
    * Резы, выпавшие за новые границы, исчезают при коммите (точка на стороне
    * не переживает укорочение стороны).
    */
-  setRectSize(objectId: string, w: Rational, h: Rational, commit = true): boolean {
+  setRectSize(
+    objectId: string, w: Rational, h: Rational, commit = true,
+    opts?: { anchorX?: 'right'; anchorY?: 'top' },
+  ): boolean {
     const r = this.objects.get(objectId);
     if (!r || r.kind !== 'rect') return false;
     if (!this.rectDragBase.has(objectId)) this.rectDragBase.set(objectId, this.rectState(r));
@@ -478,8 +488,17 @@ export class Session {
     if (commit) {
       const before = this.rectDragBase.get(objectId)!;
       this.rectDragBase.delete(objectId);
-      r.cutsX = r.cutsX.filter((c) => c.compare(r.w) < 0);
-      r.cutsY = r.cutsY.filter((c) => c.compare(r.h) < 0);
+      // рост от противоположного края: содержимое (резы) остаётся на месте
+      if (opts?.anchorX === 'right') {
+        const dx = r.w.sub(before.w);
+        r.cutsX = r.cutsX.map((c) => c.add(dx));
+      }
+      if (opts?.anchorY === 'top') {
+        const dy = r.h.sub(before.h);
+        r.cutsY = r.cutsY.map((c) => c.add(dy));
+      }
+      r.cutsX = r.cutsX.filter((c) => c.sign() > 0 && c.compare(r.w) < 0);
+      r.cutsY = r.cutsY.filter((c) => c.sign() > 0 && c.compare(r.h) < 0);
       const changed = !before.w.equals(r.w) || !before.h.equals(r.h);
       if (changed) {
         const grew = before.h.isZero() && !r.h.isZero();
@@ -923,6 +942,87 @@ export class Session {
       note: `⚒ ${c.label} ${tool.label}: рёбра ×${k.toDisplay()}, ${factor} — ${this.cuboidNote(c).split(': ')[1]}`,
     });
     return true;
+  }
+
+  // ---------- функции-машины (панель «Функции» плоскости) ----------
+
+  private funcCounter = 0;
+  private static readonly FUNC_LABELS = ['f', 'g', 'h', 'p', 'q', 'r', 's', 't'];
+  private static readonly FUNC_COLORS = [
+    '#4fc3f7', '#ff9e64', '#9ece6a', '#f7768e', '#bb9af7',
+    '#e0af68', '#7dcfff', '#73daca',
+  ];
+
+  spawnFunction(formula: string, color?: string): FunctionObject {
+    const i = this.funcCounter++;
+    const obj: FunctionObject = {
+      kind: 'function',
+      id: nextId('fn'),
+      label: Session.FUNC_LABELS[i % Session.FUNC_LABELS.length]!,
+      formula,
+      color: color ?? Session.FUNC_COLORS[i % Session.FUNC_COLORS.length]!,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  /** Правка формулы — полноценный ход (паспорт машины переписан). */
+  setFunctionFormula(objectId: string, formula: string): boolean {
+    const f = this.objects.get(objectId);
+    if (!f || f.kind !== 'function') return false;
+    if (f.formula === formula) return true;
+    const before: FunctionState = { formula: f.formula };
+    f.formula = formula;
+    this.applyLog.push({ objectId, kind: 'function', before, after: { formula } });
+    this.emit({
+      kind: 'function-changed',
+      object: f,
+      note: `⚙ ${f.label}(x) = ${formula || '…'}`,
+    });
+    return true;
+  }
+
+  /** Цвет — презентация паспорта: без хода и журнала. */
+  setFunctionColor(objectId: string, color: string): boolean {
+    const f = this.objects.get(objectId);
+    if (!f || f.kind !== 'function') return false;
+    f.color = color;
+    this.emit({ kind: 'function-changed', object: f, note: '' });
+    return true;
+  }
+
+  /**
+   * «Прогони вход» без молотка: функция сама считает выход, на следе
+   * рождается точка с ТОЧНЫМ адресом (evalRat, ≈-политика ядра).
+   * Несуществующее значение — честный отказ function-refused.
+   */
+  probeFunction(objectId: string, x: Rational): PointObject | null {
+    const f = this.objects.get(objectId);
+    if (!f || f.kind !== 'function') return null;
+    const ast = parseFormula(f.formula);
+    if (!ast) {
+      this.emit({ kind: 'function-refused', object: f, note: `⛔ ${f.label}: формула не читается` });
+      return null;
+    }
+    const y = evalRat(ast, x);
+    if (y === null) {
+      this.emit({
+        kind: 'function-refused',
+        object: f,
+        note: `⛔ ${f.label}(${x.toDisplay()}) не существует — в этом месте у следа дыра`,
+      });
+      return null;
+    }
+    const pt = this.spawnPoint(x, y);
+    this.emit({
+      kind: 'point-moved',
+      object: pt,
+      note: `⚙ ${f.label}(${x.toDisplay()}) = ${y.toDisplay()} — точка ${pt.label} на следе`,
+    });
+    return pt;
   }
 
   // ---------- углы на единичной окружности ----------
@@ -1438,6 +1538,11 @@ export class Session {
       obj.d = last.before.d;
       obj.h = last.before.h;
       this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.cuboidNote(obj)}` });
+      return true;
+    }
+    if (last.kind === 'function' && obj.kind === 'function') {
+      obj.formula = last.before.formula;
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label}(x) = ${obj.formula || '…'}` });
       return true;
     }
     if (last.kind === 'angle' && obj.kind === 'angle') {

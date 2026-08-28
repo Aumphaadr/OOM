@@ -301,7 +301,19 @@ export function radText(deg: Rational): string {
   return `${neg ? '−' : ''}${numTxt}${k.den === 1n ? '' : `/${k.den}`}`;
 }
 
-export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject | PointObject | VectorObject | CuboidObject | AngleObject;
+/**
+ * Функция-машина (серия 015) на плоскости: паспорт — ФОРМУЛА-строка,
+ * портрет — след на сцене. Формула хранится как записал автор (это запись,
+ * парсер живёт в core/formula.ts); цвет — часть паспорта, сохраняется.
+ */
+export interface FunctionObject extends ObjectBase {
+  kind: 'function';
+  readonly label: string; // f, g, h…
+  formula: string;
+  color: string;
+}
+
+export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject | PointObject | VectorObject | CuboidObject | AngleObject | FunctionObject;
 
 /** Значение левой чаши: секрет, прогнанный через стопку наклеек. */
 export function unknownValue(u: UnknownObject): Rational {

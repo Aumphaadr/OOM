@@ -5,6 +5,7 @@ import { Session } from '../src/core/session';
 import { checkGoal } from '../src/core/goal';
 import { importBoardData } from '../src/core/serialize';
 import { traceEval } from '../src/scenes/planeScene';
+import { parseFormula, evalNum, evalRat, toolToFormula } from '../src/core/formula';
 
 describe('Rational', () => {
   it('парсит целые, десятичные (точка и запятая), дроби', () => {
@@ -589,6 +590,72 @@ describe('Session', () => {
     const mul1 = s.addTool('mul', R(1));
     s.scalesApply(u.id, mul1.id, 'left');
     expect(mul1.hits).toBe(0);
+  });
+
+  it('формулы: приоритеты, неявное умножение, дыры, точный вычислитель', () => {
+    const at = (src: string, x: number): number | null => {
+      const ast = parseFormula(src);
+      return ast ? evalNum(ast, x) : null;
+    };
+    expect(at('x^2 - 2(x+5) + 10', 3)).toBe(3);   // 9 − 16 + 10
+    expect(at('2x', 4)).toBe(8);                   // неявное умножение
+    expect(at('(x+1)(x-1)', 5)).toBe(24);
+    expect(at('-x^2', 2)).toBe(-4);                // унарный минус за степенью
+    expect(at('x^2^3', 2)).toBe(256);              // правоассоциативность: 2^8
+    expect(at('sqrt(x)', -4)).toBe(null);          // дыра
+    expect(at('1/x', 0)).toBe(null);               // деление на ноль
+    expect(at('abs(х)', -7)).toBe(7);              // кириллическая «х» принимается
+    expect(at('3,5 + x', 0)).toBe(3.5);            // запятая в числе
+    expect(parseFormula('2 +')).toBe(null);        // огрызок — ошибка
+    expect(parseFormula('y + 1')).toBe(null);      // чужие буквы — ошибка
+
+    // точный вычислитель: Rational без потерь, ≈-политика на корнях
+    const ast = parseFormula('x/3')!;
+    expect(evalRat(ast, R(1))!.toDisplay()).toBe('1/3');
+    expect(evalRat(parseFormula('sqrt(x)')!, R(8))!.toDisplay()).toBe('2,828');
+    expect(evalRat(parseFormula('sqrt(x)')!, R(-1))).toBe(null);
+
+    // молоток → формула (мост «жест → запись»)
+    expect(toolToFormula(makeTool('mul', R(2)))).toBe('2x');
+    expect(toolToFormula(makeCompositeTool([{ op: 'mul', n: R(2) }, { op: 'add', n: R(3) }], ''))).toBe('(2x) + 3');
+    expect(toolToFormula(makeTool('div', R(1, 3)))).toBe('x / (1/3)');
+    expect(toolToFormula(makeTool('mod', R(5)))).toBe(null);
+  });
+
+  it('функции-машины: спавн, правка формулы — ход, probe с точным адресом, отказ', () => {
+    const s = new Session();
+    const f = s.spawnFunction('x^2');
+    expect(f.label).toBe('f');
+
+    const events: string[] = [];
+    const off = s.on((e) => events.push(e.kind));
+    const pt = s.probeFunction(f.id, R(3))!;
+    expect(pt.x.toDisplay()).toBe('3');
+    expect(pt.y.toDisplay()).toBe('9');
+    expect(events).toContain('point-moved'); // probe — полноценный ход
+    expect(checkGoal(s, { kind: 'point-at', x: '3', y: '9' })).toBe(true);
+
+    // дыра — честный отказ, точки нет
+    s.setFunctionFormula(f.id, 'sqrt(x)');
+    events.length = 0;
+    expect(s.probeFunction(f.id, R(-4))).toBeNull();
+    expect(events).toContain('function-refused');
+
+    // правка формулы — ход с undo
+    expect(s.undo()).toBe(true); // откат формулы к x^2
+    expect(f.formula).toBe('x^2');
+  });
+
+  it('фигуры: рост влево/вниз с якорем — резы остаются на месте', () => {
+    const s = new Session();
+    const r = s.spawnRect(R(6), R(4));
+    s.cutRect(r.id, 'x', R(2));
+    // тянем ЛЕВУЮ кромку: ширина 6 → 8, якорь справа — рез уезжает на +2
+    s.setRectSize(r.id, R(8), R(4), true, { anchorX: 'right' });
+    expect(r.cutsX.map((c) => c.toDisplay())).toEqual(['4']);
+    // обычный рост вправо резы не трогает
+    s.setRectSize(r.id, R(10), R(4), true);
+    expect(r.cutsX.map((c) => c.toDisplay())).toEqual(['4']);
   });
 
   it('структурный undo: создание отменяется, удалённое воскресает, импорт — не ходы', () => {
