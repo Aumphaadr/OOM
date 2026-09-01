@@ -112,6 +112,8 @@ export class NumberLineScene implements Scene {
         }
         this.selection.clear();
         for (const item of this.ctx.clipboard.items) {
+          // фигуры плоскости здесь невидимы — не спавним их втихую
+          if (item.kind === 'polygon' || item.kind === 'circle') continue;
           const obj = spawnFromClip(this.ctx.session, item);
           if (obj.kind === 'number') {
             obj.scenePos.set(this.id, { x: best.id, y: 0 });
@@ -271,6 +273,29 @@ export class NumberLineScene implements Scene {
 
   private lineY(line: NLine): number { return line.yFrac * this.heightPx; }
   private xOf(v: number): number { return this.widthPx / 2 + (v - this.centerValue) * this.pxPerUnit; }
+
+  /**
+   * Значение под курсором для ползунка переменной. Если у переменной нет
+   * зашитого шага (по умолчанию), снап — к делениям, которые СЕЙЧАС нарисованы
+   * на прямой этой фишки (tickPlan): видишь 0,05 — ходишь по 0,05.
+   */
+  private snappedValueAt(px: number, obj: NumberObject): Rational {
+    const raw = this.valueAt(px);
+    if (obj.variable?.step) return Rational.of(Math.round(raw * 1e6), 1e6); // снапнет ядро
+    const lineId = this.lineIdOf(obj);
+    const step = this.tickStepRat(this.lines.find((l) => l.id === lineId) ?? this.lines[0]!);
+    return step.mul(Rational.of(Math.round(raw / step.toNumber())));
+  }
+
+  /** Точный (дробью) шаг делений прямой — та же лестница, что рисует tickPlan. */
+  private tickStepRat(line: NLine): Rational {
+    const plan = this.tickPlan(line);
+    if (plan.den !== null) return Rational.of(plan.numStep, plan.den);
+    const { m, k } = this.decStepParts();
+    return k >= 0
+      ? Rational.of(BigInt(m) * 10n ** BigInt(k))
+      : Rational.of(BigInt(m), 10n ** BigInt(-k));
+  }
   private valueAt(x: number): number { return this.centerValue + (x - this.widthPx / 2) / this.pxPerUnit; }
 
   private lineIdOf(obj: NumberObject): number {
@@ -419,8 +444,7 @@ export class NumberLineScene implements Scene {
       g.axis = g.obj.variable && horizontal ? 'value' : 'transfer';
     }
     if (g.moved && g.axis === 'value' && this.ctx) {
-      const raw = this.valueAt(p.x);
-      this.ctx.session.setVariableValue(g.obj.id, Rational.of(Math.round(raw * 1e6), 1e6), false);
+      this.ctx.session.setVariableValue(g.obj.id, this.snappedValueAt(p.x, g.obj), false);
     }
   }
 
@@ -555,11 +579,17 @@ export class NumberLineScene implements Scene {
 
   /** Десятичная лестница шагов: 1, 2, 5 · 10^k. */
   private decStep(): number {
-    let step = Math.pow(10, Math.floor(Math.log10(MIN_TICK_PX / this.pxPerUnit)));
-    for (const m of [1, 2, 5, 10]) {
-      if (step * m * this.pxPerUnit >= MIN_TICK_PX) return step * m;
+    const { m, k } = this.decStepParts();
+    return m * Math.pow(10, k);
+  }
+
+  private decStepParts(): { m: number; k: number } {
+    const k = Math.floor(Math.log10(MIN_TICK_PX / this.pxPerUnit));
+    const base = Math.pow(10, k);
+    for (const m of [1, 2, 5]) {
+      if (base * m * this.pxPerUnit >= MIN_TICK_PX) return { m, k };
     }
-    return step * 10;
+    return { m: 1, k: k + 1 };
   }
 
   private tickLabel(line: NLine, index: number, plan: { step: number; den: number | null; numStep: number }): string {

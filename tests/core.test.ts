@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { R, Rational } from '../src/core/rational';
-import { makeTool, makeCompositeTool, makeVarTool, subtitleFor, toolLabel, parseLinForm, linFormText, sinDeg, cosDeg, radText } from '../src/core/model';
+import { makeTool, makeCompositeTool, makeVarTool, subtitleFor, toolLabel, parseLinForm, linFormText, sinDeg, cosDeg, radText, polygonArea, polygonPerimeter, polygonIsSimple, polygonVertexAngle, circleAreaText, circleCircumferenceText, formatVarValue } from '../src/core/model';
+import { clipFromObject, spawnFromClip } from '../src/core/clipboard';
 import { Session } from '../src/core/session';
 import { checkGoal } from '../src/core/goal';
-import { importBoardData } from '../src/core/serialize';
+import { importBoardData, exportBoard } from '../src/core/serialize';
 import { traceEval } from '../src/scenes/planeScene';
-import { parseFormula, evalNum, evalRat, toolToFormula } from '../src/core/formula';
+import { parseFormula, evalNum, evalRat, toolToFormula, evalConstFormula } from '../src/core/formula';
 
 describe('Rational', () => {
   it('парсит целые, десятичные (точка и запятая), дроби', () => {
@@ -725,5 +726,349 @@ describe('нейтральные удары по весам', () => {
     const mulNeg = s.addTool('mul', R(-1));
     s.scalesApply(u2.id, mulNeg.id, 'left');
     expect(u2.ops.length).toBe(1);
+  });
+});
+
+describe('многоугольники (построения на плоскости)', () => {
+  const verts = (...xy: [number, number][]) => xy.map(([x, y]) => ({ x: R(x), y: R(y) }));
+
+  it('площадь по шнуровке точная, периметр пифагоров — точный', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [4, 0], [0, 3]))!; // египетский треугольник
+    expect(p).not.toBeNull();
+    expect(polygonArea(p).toDisplay()).toBe('6');
+    const per = polygonPerimeter(p);
+    expect(per.exact).toBe(true);
+    expect(per.v.toDisplay()).toBe('12'); // 3 + 4 + 5
+  });
+
+  it('непифагорова сторона — периметр честно приближается', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [1, 1], [2, 0], [1, -1]))!; // квадрат на уголке
+    expect(polygonArea(p).toDisplay()).toBe('2');
+    expect(polygonPerimeter(p).exact).toBe(false); // 4·√2
+    expect(polygonIsSimple(p)).toBe(true);
+  });
+
+  it('самопересечение (бабочка) ловится точно', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [2, 2], [2, 0], [0, 2]))!;
+    expect(polygonIsSimple(p)).toBe(false);
+  });
+
+  it('меньше трёх вершин — фигуры не бывает', () => {
+    const s = new Session();
+    expect(s.spawnPolygon(verts([0, 0], [1, 1]))).toBeNull();
+  });
+
+  it('перенос тела: транзиенты без записи, коммит — один ход, undo возвращает', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [2, 0], [0, 2]))!;
+    let moves = 0;
+    s.on((e) => { if (e.kind === 'polygon-changed') moves++; });
+    s.movePolygon(p.id, R(1), R(0), false);
+    s.movePolygon(p.id, R(2), R(1), false);
+    expect(moves).toBe(0); // транзиенты молчат
+    s.movePolygon(p.id, R(3), R(-1), true);
+    expect(moves).toBe(1); // один ход на весь жест
+    expect(p.vertices[0]!.x.toDisplay()).toBe('3');
+    expect(p.vertices[0]!.y.toDisplay()).toBe('-1');
+    expect(p.vertices[2]!.y.toDisplay()).toBe('1'); // смещение от БАЗЫ, не накопленное
+    expect(s.undo()).toBe(true);
+    expect(p.vertices[0]!.x.toDisplay()).toBe('0');
+    expect(p.vertices[2]!.y.toDisplay()).toBe('2');
+  });
+
+  it('вершина тащится с коммитом; возврат на место — не ход', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [2, 0], [0, 2]))!;
+    let moves = 0;
+    s.on((e) => { if (e.kind === 'polygon-changed') moves++; });
+    s.setPolygonVertex(p.id, 1, R(3), R(0), false);
+    s.setPolygonVertex(p.id, 1, R(2), R(0), true); // вернулась
+    expect(moves).toBe(0);
+    s.setPolygonVertex(p.id, 1, R(4), R(0), true);
+    expect(moves).toBe(1);
+    expect(polygonArea(p).toDisplay()).toBe('4');
+    expect(s.undo()).toBe(true);
+    expect(polygonArea(p).toDisplay()).toBe('2');
+  });
+
+  it('зеркала и повороты двигают весь строй', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([1, 0], [3, 0], [1, 2]))!;
+    expect(s.flipPolygon(p.id, 'y')).toBe(true);
+    expect(p.vertices[0]!.x.toDisplay()).toBe('-1');
+    expect(s.rotatePolygon(p.id, 'ccw')).toBe(true); // (x;y) → (−y;x)
+    expect(p.vertices[0]!.x.toDisplay()).toBe('0');
+    expect(p.vertices[0]!.y.toDisplay()).toBe('-1');
+    expect(polygonArea(p).toDisplay()).toBe('2'); // движения площадь не меняют
+    expect(s.undo()).toBe(true);
+    expect(s.undo()).toBe(true);
+    expect(p.vertices[0]!.x.toDisplay()).toBe('1');
+  });
+
+  it('молоток ×k — гомотетия (площадь ×k²), чужие молотки и ×0 отказывают', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [2, 0], [0, 2]))!;
+    const rejected: string[] = [];
+    s.on((e) => { if (e.kind === 'tool-rejected') rejected.push(e.reason); });
+
+    const mul2 = s.addTool('mul', R(2));
+    expect(s.polygonApply(p.id, mul2.id)).toBe(true);
+    expect(polygonArea(p).toDisplay()).toBe('8'); // 2 → 8: ×2 даёт ×4 площади
+    expect(mul2.hits).toBe(1);
+
+    const add5 = s.addTool('add', R(5));
+    expect(s.polygonApply(p.id, add5.id)).toBe(false);
+    const mul0 = s.addTool('mul', R(0));
+    expect(s.polygonApply(p.id, mul0.id)).toBe(false);
+    expect(rejected.length).toBe(2);
+    expect(polygonArea(p).toDisplay()).toBe('8'); // отказы ничего не меняют
+
+    expect(s.undo()).toBe(true);
+    expect(polygonArea(p).toDisplay()).toBe('2');
+  });
+
+  it('сериализация: фигура выживает в заготовке доски', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [3, 0], [3, 2], [0, 2]))!;
+    p.showPerimeter = true;
+    const json = JSON.parse(exportBoard(s));
+    const s2 = new Session();
+    expect(importBoardData(s2, json)).toBe(true);
+    const p2 = [...s2.objects.values()].find((o) => o.kind === 'polygon')!;
+    expect(p2.kind).toBe('polygon');
+    if (p2.kind === 'polygon') {
+      expect(p2.vertices.length).toBe(4);
+      expect(polygonArea(p2).toDisplay()).toBe('6');
+      expect(p2.showPerimeter).toBe(true);
+    }
+  });
+
+  it('удаление и воскрешение фигуры через undo', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [1, 0], [0, 1]))!;
+    s.removeObject(p.id);
+    expect(s.objects.has(p.id)).toBe(false);
+    expect(s.undo()).toBe(true);
+    expect(s.objects.has(p.id)).toBe(true);
+  });
+});
+
+describe('углы, окружности, цели и копирование фигур', () => {
+  const verts = (...xy: [number, number][]) => xy.map(([x, y]) => ({ x: R(x), y: R(y) }));
+
+  it('углы при вершинах: табличные точно, прочие с ≈', () => {
+    const s = new Session();
+    const sq = s.spawnPolygon(verts([0, 0], [2, 0], [2, 2], [0, 2]))!; // квадрат
+    for (let i = 0; i < 4; i++) {
+      const a = polygonVertexAngle(sq, i);
+      expect(a.exact).toBe(true);
+      expect(a.v.toDisplay()).toBe('90');
+    }
+    const tri = s.spawnPolygon(verts([0, 0], [2, 0], [0, 2]))!; // равнобедренный прямоугольный
+    expect(polygonVertexAngle(tri, 0).v.toDisplay()).toBe('90');
+    expect(polygonVertexAngle(tri, 1).v.toDisplay()).toBe('45');
+    expect(polygonVertexAngle(tri, 1).exact).toBe(true);
+    const skew = s.spawnPolygon(verts([0, 0], [3, 0], [0, 1]))!; // atan(1/3) — не табличный
+    const a = polygonVertexAngle(skew, 1);
+    expect(a.exact).toBe(false);
+    expect(a.v.toDisplay()).toBe('18,4'); // ≈18,43° до десятой
+  });
+
+  it('вогнутая вершина даёт рефлексный угол 360−θ', () => {
+    const s = new Session();
+    // «стрелка»: вершина (1;1) вдавлена внутрь
+    const p = s.spawnPolygon(verts([0, 0], [4, 0], [1, 1], [0, 4]))!;
+    const inner = polygonVertexAngle(p, 2);
+    expect(inner.v.toNumber()).toBeGreaterThan(180);
+    // сумма углов простого четырёхугольника — 360°
+    let sum = 0;
+    for (let i = 0; i < 4; i++) sum += polygonVertexAngle(p, i).v.toNumber();
+    expect(Math.round(sum)).toBe(360);
+  });
+
+  it('окружность: π остаётся именем — S и C точны', () => {
+    const s = new Session();
+    const c = s.spawnCircle(R(1), R(2), R(2))!;
+    expect(circleAreaText(c)).toBe('4π');
+    expect(circleCircumferenceText(c)).toBe('4π');
+    c.r = R(1, 2);
+    expect(circleAreaText(c)).toBe('π/4');
+    expect(circleCircumferenceText(c)).toBe('π');
+    expect(s.spawnCircle(R(0), R(0), R(0))).toBeNull(); // без радиуса не бывает
+  });
+
+  it('центр и радиус: транзиенты, коммит одним ходом, undo', () => {
+    const s = new Session();
+    const c = s.spawnCircle(R(0), R(0), R(2))!;
+    let moves = 0;
+    s.on((e) => { if (e.kind === 'circle-changed') moves++; });
+    s.setCirclePos(c.id, R(1), R(0), false);
+    s.setCirclePos(c.id, R(3), R(1), true);
+    expect(moves).toBe(1);
+    s.setCircleRadius(c.id, R(5), false);
+    s.setCircleRadius(c.id, R(2), true); // вернулся — не ход
+    expect(moves).toBe(1);
+    expect(s.setCircleRadius(c.id, R(-1))).toBe(false); // отрицательный радиус — отказ
+    expect(s.undo()).toBe(true);
+    expect(c.cx.toDisplay()).toBe('0');
+  });
+
+  it('молоток по окружности: гомотетия, ×0 и +k отказывают', () => {
+    const s = new Session();
+    const c = s.spawnCircle(R(1), R(1), R(1))!;
+    const mul2 = s.addTool('mul', R(2));
+    expect(s.circleApply(c.id, mul2.id)).toBe(true);
+    expect(c.cx.toDisplay()).toBe('2');
+    expect(c.r.toDisplay()).toBe('2');
+    const mulNeg = s.addTool('mul', R(-1));
+    expect(s.circleApply(c.id, mulNeg.id)).toBe(true);
+    expect(c.cx.toDisplay()).toBe('-2');
+    expect(c.r.toDisplay()).toBe('2'); // радиус — длина, знак его не разворачивает
+    const rejected: string[] = [];
+    s.on((e) => { if (e.kind === 'tool-rejected') rejected.push(e.reason); });
+    expect(s.circleApply(c.id, s.addTool('add', R(5)).id)).toBe(false);
+    expect(s.circleApply(c.id, s.addTool('mul', R(0)).id)).toBe(false);
+    expect(rejected.length).toBe(2);
+  });
+
+  it('зеркала и повороты возят центр, вектор ведёт фигуру и окружность', () => {
+    const s = new Session();
+    const c = s.spawnCircle(R(3), R(1), R(1))!;
+    s.flipCircle(c.id, 'y');
+    expect(c.cx.toDisplay()).toBe('-3');
+    s.rotateCircle(c.id, 'ccw'); // (x;y) → (−y;x)
+    expect(c.cx.toDisplay()).toBe('-1');
+    expect(c.cy.toDisplay()).toBe('-3');
+
+    const p = s.spawnPolygon(verts([0, 0], [1, 0], [0, 1]))!;
+    const v = s.spawnVector(R(2), R(3));
+    expect(s.movePolygonBy(p.id, v.id)).toBe(true);
+    expect(p.vertices[0]!.x.toDisplay()).toBe('2');
+    expect(p.vertices[0]!.y.toDisplay()).toBe('3');
+    expect(s.moveCircleBy(c.id, v.id)).toBe(true);
+    expect(c.cx.toDisplay()).toBe('1');
+    expect(s.undo()).toBe(true); // отменился перенос окружности
+    expect(c.cx.toDisplay()).toBe('-1');
+  });
+
+  it('цели polygon-area и circle-size', () => {
+    const s = new Session();
+    expect(checkGoal(s, { kind: 'polygon-area', area: '6' })).toBe(false);
+    s.spawnPolygon(verts([0, 0], [4, 0], [0, 3]));
+    expect(checkGoal(s, { kind: 'polygon-area', area: '6' })).toBe(true);
+    expect(checkGoal(s, { kind: 'polygon-area', area: '6', verts: 4 })).toBe(false);
+    expect(checkGoal(s, { kind: 'polygon-area', area: '6', verts: 3 })).toBe(true);
+    // самопересекающаяся бабочка площадь не засчитывает
+    const bow = new Session();
+    bow.spawnPolygon(verts([0, 0], [2, 2], [2, 0], [0, 2]));
+    expect(checkGoal(bow, { kind: 'polygon-area', area: '2' })).toBe(false);
+
+    expect(checkGoal(s, { kind: 'circle-size', r: '3/2' })).toBe(false);
+    s.spawnCircle(R(0), R(0), R(3, 2));
+    expect(checkGoal(s, { kind: 'circle-size', r: '3/2' })).toBe(true);
+  });
+
+  it('сериализация окружности и флага углов', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [1, 0], [0, 1]))!;
+    p.showAngles = true;
+    const c = s.spawnCircle(R(1), R(-2), R(5, 2))!;
+    c.showCircumference = true;
+    const s2 = new Session();
+    expect(importBoardData(s2, JSON.parse(exportBoard(s)))).toBe(true);
+    const p2 = [...s2.objects.values()].find((o) => o.kind === 'polygon');
+    const c2 = [...s2.objects.values()].find((o) => o.kind === 'circle');
+    expect(p2?.kind === 'polygon' && p2.showAngles).toBe(true);
+    expect(c2?.kind === 'circle' && c2.r.toDisplay()).toBe('2,5');
+    expect(c2?.kind === 'circle' && c2.showCircumference).toBe(true);
+  });
+
+  it('буфер обмена: копия фигуры и окружности — свежие объекты', () => {
+    const s = new Session();
+    const p = s.spawnPolygon(verts([0, 0], [2, 0], [0, 2]))!;
+    p.showAngles = true;
+    const c = s.spawnCircle(R(1), R(1), R(2))!;
+    const clipP = clipFromObject(p, 0, 0)!;
+    const clipC = clipFromObject(c, 0, 0)!;
+    const p2 = spawnFromClip(s, clipP);
+    const c2 = spawnFromClip(s, clipC);
+    expect(p2.kind === 'polygon' && p2.id !== p.id && polygonArea(p2).toDisplay()).toBe('2');
+    expect(p2.kind === 'polygon' && p2.showAngles).toBe(true);
+    expect(c2.kind === 'circle' && c2.r.toDisplay()).toBe('2');
+    // копия независима: движение копии не трогает оригинал
+    if (p2.kind === 'polygon') s.movePolygon(p2.id, R(1), R(1));
+    expect(p.vertices[0]!.x.toDisplay()).toBe('0');
+  });
+});
+
+describe('переменная-коробка: формат записи, выражения, сериализация', () => {
+  it('formatVarValue: десятичный авто и с числом знаков', () => {
+    expect(formatVarValue(R(3, 8))).toBe('0,375');            // конечная — как есть
+    expect(formatVarValue(R(1, 3))).toBe('≈0,333');           // бесконечная — честное ≈
+    expect(formatVarValue(R(3, 8), { kind: 'dec', digits: 2 })).toBe('≈0,38');
+    expect(formatVarValue(R(1, 2), { kind: 'dec', digits: 2 })).toBe('0,50'); // точно в 2 знака
+    expect(formatVarValue(R(-1, 3), { kind: 'dec', digits: 1 })).toBe('≈-0,3');
+  });
+
+  it('formatVarValue: дробный формат с заданным знаменателем', () => {
+    expect(formatVarValue(R(3, 8), { kind: 'frac', den: 8 })).toBe('3/8');
+    expect(formatVarValue(R(3, 8), { kind: 'frac', den: 16 })).toBe('6/16'); // без сокращения — линейка
+    expect(formatVarValue(R(1, 3), { kind: 'frac', den: 8 })).toBe('≈2,67/8'); // не влезает — честное ≈
+    expect(formatVarValue(R(2), { kind: 'frac', den: 4 })).toBe('8/4'); // неправильная дробь честна
+  });
+
+  it('√ по дробной переменной: ≈-политика ядра + честная запись формата', () => {
+    const v = makeTool('sqrt', R(0)).apply(R(3, 8)); // ≈0,612
+    expect(formatVarValue(v, { kind: 'frac', den: 8 })).toMatch(/^≈/);
+    expect(formatVarValue(v, { kind: 'dec', digits: 3 })).toBe('0,612');
+  });
+
+  it('evalConstFormula: выражения считаются точно, x и мусор — отказ', () => {
+    expect(evalConstFormula('3+6')!.toDisplay()).toBe('9');
+    expect(evalConstFormula('3/8')!.toDisplay()).toBe('0,375');
+    expect(evalConstFormula('2(1+4)')!.toDisplay()).toBe('10');
+    expect(evalConstFormula('sqrt(9)')!.toDisplay()).toBe('3');
+    expect(evalConstFormula('-1/2')!.toDisplay()).toBe('-0,5');
+    expect(evalConstFormula('x+1')).toBeNull();   // чужая буква в значении
+    expect(evalConstFormula('abc')).toBeNull();
+    expect(evalConstFormula('sqrt(-4)')).toBeNull(); // отказ честен и тут
+  });
+
+  it('ввод значения — ход var-set с undo; молотки бьют как по числу', () => {
+    const s = new Session();
+    const v = s.spawnVariable('a');
+    let sets = 0;
+    s.on((e) => { if (e.kind === 'var-set') sets++; });
+    s.setVariableValue(v.id, R(9), true);
+    expect(sets).toBe(1);
+    expect(v.value.toDisplay()).toBe('9');
+    const sq = s.addTool('sq', R(0));
+    s.applyTool(sq.id, v.id);
+    expect(v.value.toDisplay()).toBe('81');
+    expect(s.undo()).toBe(true); // удар
+    expect(s.undo()).toBe(true); // присваивание
+    expect(v.value.toDisplay()).toBe('0');
+  });
+
+  it('формат и видимость переживают сериализацию и буфер обмена', () => {
+    const s = new Session();
+    const v = s.spawnVariable('k');
+    s.setVariableValue(v.id, R(3, 8));
+    v.variable!.format = { kind: 'frac', den: 8 };
+    v.variable!.showValue = false;
+    const s2 = new Session();
+    expect(importBoardData(s2, JSON.parse(exportBoard(s)))).toBe(true);
+    const v2 = [...s2.objects.values()].find((o) => o.kind === 'number' && o.variable);
+    expect(v2?.kind === 'number' && v2.variable?.format?.kind).toBe('frac');
+    expect(v2?.kind === 'number' && v2.variable?.showValue).toBe(false);
+
+    const copy = spawnFromClip(s, clipFromObject(v, 0, 0)!);
+    expect(copy.kind === 'number' && copy.variable?.format?.kind).toBe('frac');
+    // формат копии независим от оригинала
+    if (copy.kind === 'number' && copy.variable?.format?.kind === 'frac') copy.variable.format.den = 4;
+    expect(v.variable!.format!.kind === 'frac' && v.variable!.format!.den).toBe(8);
   });
 });

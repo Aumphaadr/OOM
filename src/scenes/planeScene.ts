@@ -2,7 +2,13 @@ import { Scene, SceneContext } from './scene';
 import { theme } from '../render/theme';
 import { drawHammer } from '../render/hammer';
 import { FlyingLabels, wobbleAngle } from '../render/motion';
-import { PointObject, VectorObject, FunctionObject, Tool, PrimitiveOp, visibleLabel } from '../core/model';
+import {
+  PointObject, VectorObject, FunctionObject, PolygonObject, CircleObject, Tool, PrimitiveOp,
+  visibleLabel, polygonArea, polygonPerimeter, polygonIsSimple, polygonVertexAngle,
+  circleAreaText, circleCircumferenceText,
+} from '../core/model';
+import { clipFromObject, spawnFromClip } from '../core/clipboard';
+import { loadSettings } from '../ui/settings';
 import { parseFormula, evalNum, FormulaNode } from '../core/formula';
 import { Rational } from '../core/rational';
 import { icon } from '../ui/icons';
@@ -15,6 +21,10 @@ const AXIS_HIT = 16;
 const VEC_END_R = 11;    // захват головы/хвоста стрелки
 const VEC_SHAFT_R = 7;   // захват древка
 const CHAIN_SNAP = 0.45; // прилипание хвоста к чужому носу, в клетках
+const POLY_VERT_R = 10;  // захват вершины выделенной фигуры
+const POLY_CLOSE_R = 14; // клик у первой вершины замыкает постройку
+const CIRC_CENTER_R = 10; // захват центра окружности
+const CIRC_EDGE_R = 8;    // захват обода (радиус тянется за любую его точку)
 /** Свотчи выбора цвета функции: фиксированная палитра, одинаковая во всех браузерах. */
 const SWATCHES = [
   '#4fc3f7', '#ff9e64', '#9ece6a', '#f7768e', '#bb9af7',
@@ -106,6 +116,11 @@ export class PlaneScene implements Scene {
     | { type: 'vec-head'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean }
     | { type: 'vec-tail'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean;
         grabDX: number; grabDY: number }
+    | { type: 'poly'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean }
+    | { type: 'poly-vertex'; id: string; index: number; startX: number; startY: number; moved: boolean;
+        wasSelected: boolean }
+    | { type: 'circ-center'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean }
+    | { type: 'circ-edge'; id: string; startX: number; startY: number; moved: boolean; wasSelected: boolean }
     | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean }
     | null = null;
   private lastClick = { time: 0, x: 0, y: 0 };
@@ -137,6 +152,19 @@ export class PlaneScene implements Scene {
   private flipYBtn: HTMLButtonElement | null = null;
   private rotCcwBtn: HTMLButtonElement | null = null;
   private rotCwBtn: HTMLButtonElement | null = null;
+  /** Постройка многоугольника: набранные вершины (null — режим выключен). */
+  private buildVerts: { x: Rational; y: Rational }[] | null = null;
+  private buildBtn: HTMLButtonElement | null = null;
+  /** Постройка окружности: null — выключена, center: null — ждём клик-центр. */
+  private buildCirc: { center: { x: Rational; y: Rational } | null } | null = null;
+  private buildCircBtn: HTMLButtonElement | null = null;
+  /** Фигура/круг под хвостом стрелки: отпускание выполнит команду. */
+  private dropPoly: string | null = null;
+  private dropCirc: string | null = null;
+  /** ПКМ-карточка личных подписей фигуры (площадь/периметр/углы…). */
+  private figCard: HTMLElement | null = null;
+  private figCardFor: string | null = null;
+  private canvasEl: HTMLElement | null = null;
 
   private readonly keyHandler = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
@@ -147,7 +175,52 @@ export class PlaneScene implements Scene {
       for (const id of [...this.selection]) this.ctx.session.removeObject(id);
       this.selection.clear();
     }
-    if (e.key === 'Escape') this.selection.clear();
+    if (e.key === 'Escape') {
+      this.selection.clear();
+      this.setBuild(null); // Esc обрывает постройку
+      this.setBuildCirc(null);
+      if (this.figCard) this.figCard.hidden = true;
+    }
+
+    // Копирование фигур: Ctrl+C/X/V (физические коды — любая раскладка)
+    if ((e.ctrlKey || e.metaKey) && this.ctx) {
+      const k = e.code;
+      if (k === 'KeyC' || k === 'KeyX') {
+        const items = [...this.selection].flatMap((id) => {
+          const obj = this.ctx!.session.objects.get(id);
+          if (!obj || (obj.kind !== 'polygon' && obj.kind !== 'circle')) return [];
+          const item = clipFromObject(obj, 0, 0);
+          return item ? [item] : [];
+        });
+        if (!items.length) return;
+        e.preventDefault();
+        this.ctx.clipboard.items = items;
+        if (k === 'KeyX' && this.ctx.restrictions.construct) {
+          for (const item of [...this.selection]) {
+            const o = this.ctx.session.objects.get(item);
+            if (o && (o.kind === 'polygon' || o.kind === 'circle')) this.ctx.session.removeObject(item);
+          }
+        }
+      }
+      if (k === 'KeyV' && this.ctx.restrictions.construct) {
+        const items = this.ctx.clipboard.items.filter(
+          (it) => it.kind === 'polygon' || it.kind === 'circle');
+        if (!items.length) return;
+        e.preventDefault();
+        const step = this.gridStep().rat; // копия на клетку вправо-вниз, чтобы не слиться с оригиналом
+        this.selection.clear();
+        for (const item of items) {
+          const obj = spawnFromClip(this.ctx.session, item);
+          if (obj.kind === 'polygon') {
+            obj.vertices = obj.vertices.map((v) => ({ x: v.x.add(step), y: v.y.sub(step) }));
+          } else if (obj.kind === 'circle') {
+            obj.cx = obj.cx.add(step);
+            obj.cy = obj.cy.sub(step);
+          }
+          this.selection.add(obj.id);
+        }
+      }
+    }
   };
   private readonly keyUpHandler = (e: KeyboardEvent): void => {
     this.shiftDown = e.shiftKey;
@@ -197,6 +270,17 @@ export class PlaneScene implements Scene {
     this.sumBtn = null;
     this.flipXBtn = null;
     this.flipYBtn = null;
+    this.buildBtn = null;
+    this.buildVerts = null;
+    this.buildCircBtn = null;
+    this.buildCirc = null;
+    this.dropPoly = null;
+    this.dropCirc = null;
+    document.removeEventListener('click', this.figCardOutside);
+    this.figCard?.remove();
+    this.figCard = null;
+    if (this.canvasEl) this.canvasEl.style.cursor = '';
+    this.canvasEl = null;
   }
 
   buildPanel(): HTMLElement {
@@ -240,6 +324,21 @@ export class PlaneScene implements Scene {
         команду, хвост липнет к чужому носу — так стрелки складываются
         (выдели две и жми «Сумма»). А хвост, отпущенный НА ТОЧКЕ, выполняет
         команду: точка проходит путь и оказывается на носу.</p>
+      </section>
+      <section class="panel">
+      <h3>Фигуры</h3>
+      <div class="series-row btns-even">
+        <button id="fg-build" class="btn primary" title="Построить полигон: клики по плоскости ставят вершины (со снапом к сетке), клик по первой вершине замыкает; Esc отменяет">⬠ Полигон</button>
+        <button id="fg-circle" class="btn primary" title="Построить круг: первый клик — центр, второй — радиус (по шагу сетки); Esc отменяет">⊙ Круг</button>
+      </div>
+      <p class="hint">Полигон — построение: вершина за вершиной, замкнул —
+        фигура готова. У круга два клика: центр и радиус. Тащи фигуру
+        за тело (вся едет строем), вершину выделенной — за кружок, обод
+        круга — радиус. ПКМ по фигуре — карточка подписей (площадь,
+        периметр, углы; у круга — радиус и длина). Зеркала, повороты
+        и молоток ×k действуют как на точки. Хвост стрелки, отпущенный
+        на фигуре, ведёт её всю по команде. Ctrl+C/V копирует выделенные
+        фигуры, Del удаляет, Esc обрывает постройку.</p>
       </section>
       <section class="panel">
       <h3>Функции</h3>
@@ -292,10 +391,30 @@ export class PlaneScene implements Scene {
       this.selection.add(sum.id);
     });
 
+    this.buildBtn = root.querySelector<HTMLButtonElement>('#fg-build');
+    this.buildBtn!.addEventListener('click', () => {
+      if (!this.ctx?.restrictions.construct) return;
+      this.setBuildCirc(null); // режимы постройки не совмещаются
+      this.setBuild(this.buildVerts ? null : []);
+    });
+    this.buildCircBtn = root.querySelector<HTMLButtonElement>('#fg-circle');
+    this.buildCircBtn!.addEventListener('click', () => {
+      if (!this.ctx?.restrictions.construct) return;
+      this.setBuild(null);
+      this.setBuildCirc(this.buildCirc ? null : { center: null });
+    });
+    this.buildFigCard();
+
     const flip = (axis: 'x' | 'y'): void => {
       if (!this.ctx) return;
       for (const pt of this.points()) {
         if (this.selection.has(pt.id)) this.ctx.session.flipPoint(pt.id, axis);
+      }
+      for (const poly of this.polygons()) {
+        if (this.selection.has(poly.id)) this.ctx.session.flipPolygon(poly.id, axis);
+      }
+      for (const c of this.circles()) {
+        if (this.selection.has(c.id)) this.ctx.session.flipCircle(c.id, axis);
       }
     };
     this.flipXBtn = root.querySelector<HTMLButtonElement>('#pt-flip-x');
@@ -306,6 +425,12 @@ export class PlaneScene implements Scene {
       if (!this.ctx) return;
       for (const pt of this.points()) {
         if (this.selection.has(pt.id)) this.ctx.session.rotatePoint(pt.id, dir);
+      }
+      for (const poly of this.polygons()) {
+        if (this.selection.has(poly.id)) this.ctx.session.rotatePolygon(poly.id, dir);
+      }
+      for (const c of this.circles()) {
+        if (this.selection.has(c.id)) this.ctx.session.rotateCircle(c.id, dir);
       }
     };
     this.rotCcwBtn = root.querySelector<HTMLButtonElement>('#pt-rot-ccw');
@@ -543,6 +668,130 @@ export class PlaneScene implements Scene {
     return null;
   }
 
+  // ---------- многоугольники ----------
+
+  private polygons(): PolygonObject[] {
+    if (!this.ctx) return [];
+    return [...this.ctx.session.objects.values()].filter((o): o is PolygonObject => o.kind === 'polygon');
+  }
+
+  /** Вход/выход из режима постройки: кнопка меняет подпись. */
+  private setBuild(v: { x: Rational; y: Rational }[] | null): void {
+    this.buildVerts = v;
+    if (this.buildBtn) {
+      this.buildBtn.textContent = v ? '✕ Отмена' : '⬠ Полигон';
+      this.buildBtn.classList.toggle('primary', !v);
+    }
+  }
+
+  private setBuildCirc(v: { center: { x: Rational; y: Rational } | null } | null): void {
+    this.buildCirc = v;
+    if (this.buildCircBtn) {
+      this.buildCircBtn.textContent = v ? '✕ Отмена' : '⊙ Круг';
+      this.buildCircBtn.classList.toggle('primary', !v);
+    }
+  }
+
+  /** ПКМ-карточка: личные подписи фигуры, презентация — не ход. */
+  private buildFigCard(): void {
+    this.figCard?.remove();
+    this.figCard = document.createElement('div');
+    this.figCard.className = 'fig-card';
+    this.figCard.hidden = true;
+    document.body.appendChild(this.figCard);
+    document.addEventListener('click', this.figCardOutside);
+  }
+
+  private readonly figCardOutside = (ev: MouseEvent): void => {
+    if (this.figCard && !this.figCard.hidden && !this.figCard.contains(ev.target as Node)) {
+      this.figCard.hidden = true;
+    }
+  };
+
+  private openFigCard(obj: PolygonObject | CircleObject, sx: number, sy: number): void {
+    if (!this.figCard) return;
+    this.figCardFor = obj.id;
+    const rows: [name: string, key: string, on: boolean][] = obj.kind === 'polygon'
+      ? [['площадь', 'showArea', obj.showArea],
+         ['периметр', 'showPerimeter', obj.showPerimeter],
+         ['углы', 'showAngles', obj.showAngles]]
+      : [['радиус', 'showRadius', obj.showRadius],
+         ['площадь', 'showArea', obj.showArea],
+         ['длина', 'showCircumference', obj.showCircumference]];
+    this.figCard.innerHTML =
+      `<div class="fig-card-title">${obj.label} — подписи</div>` +
+      rows.map(([name, key, on]) =>
+        `<label class="field tp-check"><input type="checkbox" data-key="${key}"${on ? ' checked' : ''}/> ${name}</label>`,
+      ).join('');
+    for (const input of this.figCard.querySelectorAll<HTMLInputElement>('input')) {
+      input.addEventListener('change', () => {
+        const o = this.figCardFor ? this.ctx?.session.objects.get(this.figCardFor) : null;
+        if (o && (o.kind === 'polygon' || o.kind === 'circle')) {
+          (o as unknown as Record<string, boolean>)[input.dataset.key!] = input.checked;
+        }
+      });
+    }
+    const stage = document.getElementById('stage')?.getBoundingClientRect();
+    this.figCard.style.left = `${(stage?.left ?? 0) + sx + 10}px`;
+    this.figCard.style.top = `${(stage?.top ?? 0) + sy + 10}px`;
+    this.figCard.hidden = false;
+  }
+
+  private circles(): CircleObject[] {
+    if (!this.ctx) return [];
+    return [...this.ctx.session.objects.values()].filter((o): o is CircleObject => o.kind === 'circle');
+  }
+
+  /** Центр или обод окружности под курсором (верхняя — последняя). */
+  private circleHitAt(sx: number, sy: number): { c: CircleObject; part: 'center' | 'edge' } | null {
+    for (const c of this.circles().reverse()) {
+      const s = this.toScreen(c.cx, c.cy);
+      const dist = Math.hypot(s.x - sx, s.y - sy);
+      if (dist <= CIRC_CENTER_R) return { c, part: 'center' };
+      if (Math.abs(dist - c.r.toNumber() * this.scale) <= CIRC_EDGE_R) return { c, part: 'edge' };
+    }
+    return null;
+  }
+
+  /** Радиус по курсору: расстояние от центра, округлённое к шагу сетки (≥ шага). */
+  private circleRadiusAt(center: { x: Rational; y: Rational }, sx: number, sy: number): Rational {
+    const wx = (sx - this.origin.x) / this.scale;
+    const wy = (this.origin.y - sy) / this.scale;
+    const dist = Math.hypot(wx - center.x.toNumber(), wy - center.y.toNumber());
+    const step = this.snapStep();
+    const k = Math.max(1, Math.round(dist / step.toNumber()));
+    return step.mul(Rational.of(k));
+  }
+
+  /** Тело фигуры под курсором (верхняя — последняя нарисованная). */
+  private polygonAt(sx: number, sy: number): PolygonObject | null {
+    for (const poly of this.polygons().reverse()) {
+      const pts = poly.vertices.map((v) => this.toScreen(v.x, v.y));
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i]!;
+        const b = pts[j]!;
+        if ((a.y > sy) !== (b.y > sy) && sx < ((b.x - a.x) * (sy - a.y)) / (b.y - a.y) + a.x) {
+          inside = !inside;
+        }
+      }
+      if (inside) return poly;
+    }
+    return null;
+  }
+
+  /** Вершина ВЫДЕЛЕННОЙ фигуры под курсором — ручка для перетаскивания. */
+  private polyVertexAt(sx: number, sy: number): { poly: PolygonObject; index: number } | null {
+    for (const poly of this.polygons().reverse()) {
+      if (!this.selection.has(poly.id)) continue;
+      for (let i = 0; i < poly.vertices.length; i++) {
+        const s = this.toScreen(poly.vertices[i]!.x, poly.vertices[i]!.y);
+        if (Math.hypot(s.x - sx, s.y - sy) <= POLY_VERT_R) return { poly, index: i };
+      }
+    }
+    return null;
+  }
+
   // ---------- стрелки ----------
 
   private vectors(): VectorObject[] {
@@ -603,9 +852,17 @@ export class PlaneScene implements Scene {
     this.ensureOrigin();
     this.pointer = { x: p.x, y: p.y, inside: true };
     this.dropPoint = null;
+    this.dropPoly = null;
+    this.dropCirc = null;
 
     if (p.button === 2) {
-      if (this.ctx.hand.toolId) this.ctx.dropHand();
+      if (this.ctx.hand.toolId) {
+        this.ctx.dropHand();
+        return;
+      }
+      // ПКМ по фигуре — карточка личных подписей
+      const hit = this.circleHitAt(p.x, p.y)?.c ?? this.polygonAt(p.x, p.y);
+      if (hit) this.openFigCard(hit, p.x, p.y);
       return;
     }
     if (p.button === 1) { // СКМ — пан, как в GeoGebra
@@ -614,8 +871,52 @@ export class PlaneScene implements Scene {
     }
     if (p.button !== 0) return;
 
+    // Постройка многоугольника: клик — вершина, клик по первой — замыкание
+    if (this.buildVerts && !this.ctx.hand.toolId) {
+      const w = this.toWorldSnapped(p.x, p.y);
+      if (this.buildVerts.length >= 3) {
+        const first = this.toScreen(this.buildVerts[0]!.x, this.buildVerts[0]!.y);
+        if (Math.hypot(first.x - p.x, first.y - p.y) <= POLY_CLOSE_R) {
+          const poly = this.ctx.session.spawnPolygon(this.buildVerts);
+          this.setBuild(null);
+          if (poly) {
+            const st = loadSettings(); // дефолтные подписи — из глобальных настроек
+            poly.showArea = st.showAreaDefault;
+            poly.showPerimeter = st.showPerimeterDefault;
+            poly.showAngles = st.showAnglesDefault;
+            this.selection.clear();
+            this.selection.add(poly.id);
+          }
+          return;
+        }
+      }
+      const last = this.buildVerts[this.buildVerts.length - 1];
+      if (!last || !last.x.equals(w.x) || !last.y.equals(w.y)) this.buildVerts.push(w);
+      return;
+    }
+
+    // Постройка окружности: первый клик — центр, второй — радиус
+    if (this.buildCirc && !this.ctx.hand.toolId) {
+      if (!this.buildCirc.center) {
+        this.buildCirc.center = this.toWorldSnapped(p.x, p.y);
+        return;
+      }
+      const center = this.buildCirc.center;
+      const r = this.circleRadiusAt(center, p.x, p.y);
+      const c = this.ctx.session.spawnCircle(center.x, center.y, r);
+      this.setBuildCirc(null);
+      if (c) {
+        const st = loadSettings();
+        c.showArea = st.showAreaDefault;
+        c.showCircumference = st.showPerimeterDefault;
+        this.selection.clear();
+        this.selection.add(c.id);
+      }
+      return;
+    }
+
     // Молоток в руке: по точке — гомотетия/разворот, по стрелке — растяжка,
-    // по оси X — «прогони вход»
+    // по фигуре — гомотетия всем строем, по оси X — «прогони вход»
     const handId = this.ctx.hand.toolId;
     if (handId) {
       const hammerPt = this.pointAt(p.x, p.y);
@@ -629,6 +930,20 @@ export class PlaneScene implements Scene {
       if (hitVec) {
         const tool = this.ctx.session.tools.get(handId);
         const ok = this.ctx.session.vectorApply(hitVec.v.id, handId);
+        this.labels.spawn(ok && tool ? visibleLabel(tool) : '⛔', p.x, p.y - 10);
+        return;
+      }
+      const hitCirc = this.circleHitAt(p.x, p.y);
+      if (hitCirc) {
+        const tool = this.ctx.session.tools.get(handId);
+        const ok = this.ctx.session.circleApply(hitCirc.c.id, handId);
+        this.labels.spawn(ok && tool ? visibleLabel(tool) : '⛔', p.x, p.y - 10);
+        return;
+      }
+      const hitPoly = this.polygonAt(p.x, p.y);
+      if (hitPoly) {
+        const tool = this.ctx.session.tools.get(handId);
+        const ok = this.ctx.session.polygonApply(hitPoly.id, handId);
         this.labels.spawn(ok && tool ? visibleLabel(tool) : '⛔', p.x, p.y - 10);
         return;
       }
@@ -719,6 +1034,32 @@ export class PlaneScene implements Scene {
         }
         return;
       }
+      // фигуры — после точек и стрелок: мелкие цели в приоритете
+      const hitCirc = this.circleHitAt(p.x, p.y);
+      if (hitCirc) {
+        this.gesture = {
+          type: hitCirc.part === 'center' ? 'circ-center' : 'circ-edge',
+          id: hitCirc.c.id, startX: p.x, startY: p.y, moved: false,
+          wasSelected: this.selection.has(hitCirc.c.id),
+        };
+        return;
+      }
+      const vh = this.polyVertexAt(p.x, p.y);
+      if (vh) {
+        this.gesture = {
+          type: 'poly-vertex', id: vh.poly.id, index: vh.index,
+          startX: p.x, startY: p.y, moved: false, wasSelected: true,
+        };
+        return;
+      }
+      const hitPoly = this.polygonAt(p.x, p.y);
+      if (hitPoly) {
+        this.gesture = {
+          type: 'poly', id: hitPoly.id, startX: p.x, startY: p.y, moved: false,
+          wasSelected: this.selection.has(hitPoly.id),
+        };
+        return;
+      }
     }
     // ЛКМ по пустому месту — рамка выделения (пан переехал на СКМ)
     this.gesture = { type: 'band', x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: this.shiftDown };
@@ -751,8 +1092,38 @@ export class PlaneScene implements Scene {
       if (d) this.ctx.session.setVectorData(g.id, d.dx, d.dy, false); // транзиент
       return;
     }
+    if (g.type === 'poly') {
+      const d = this.polyDragDelta(g, p.x, p.y);
+      this.ctx.session.movePolygon(g.id, d.dx, d.dy, false); // транзиент
+      return;
+    }
+    if (g.type === 'poly-vertex') {
+      const w = this.toWorldSnapped(p.x, p.y);
+      this.ctx.session.setPolygonVertex(g.id, g.index, w.x, w.y, false); // транзиент
+      return;
+    }
+    if (g.type === 'circ-center') {
+      const w = this.toWorldSnapped(p.x, p.y);
+      this.ctx.session.setCirclePos(g.id, w.x, w.y, false); // транзиент
+      return;
+    }
+    if (g.type === 'circ-edge') {
+      const c = this.ctx.session.objects.get(g.id);
+      if (c?.kind === 'circle') {
+        this.ctx.session.setCircleRadius(g.id, this.circleRadiusAt({ x: c.cx, y: c.cy }, p.x, p.y), false);
+      }
+      return;
+    }
     // vec-tail: перенос всей стрелки — презентация, журнал не трогаем
     this.moveTail(g.id, p.x - g.grabDX, p.y - g.grabDY);
+  }
+
+  /** Смещение тела фигуры от начала жеста — оба конца прищёлкнуты к сетке. */
+  private polyDragDelta(g: { startX: number; startY: number }, sx: number, sy: number):
+    { dx: Rational; dy: Rational } {
+    const w0 = this.toWorldSnapped(g.startX, g.startY);
+    const w1 = this.toWorldSnapped(sx, sy);
+    return { dx: w1.x.sub(w0.x), dy: w1.y.sub(w0.y) };
   }
 
   /** Голова стрелки на экране (sx, sy) → команда (dx; dy) со снапом дельты. */
@@ -777,6 +1148,8 @@ export class PlaneScene implements Scene {
     const wx = (sx - this.origin.x) / this.scale;
     const wy = (this.origin.y - sy) / this.scale;
     this.dropPoint = null;
+    this.dropPoly = null;
+    this.dropCirc = null;
     for (const pt of this.points()) {
       if (Math.hypot(pt.x.toNumber() - wx, pt.y.toNumber() - wy) < CHAIN_SNAP) {
         v.scenePos.set(this.id, { x: pt.x.toNumber(), y: pt.y.toNumber() });
@@ -790,6 +1163,19 @@ export class PlaneScene implements Scene {
       if (Math.hypot(h.x - wx, h.y - wy) < CHAIN_SNAP) {
         v.scenePos.set(this.id, { x: h.x, y: h.y }); // хвост к носу — цепочка
         return;
+      }
+    }
+    // хвост над фигурой/окружностью — команда наготове для всей фигуры
+    const sp = this.worldToScreen(wx, wy);
+    const poly = this.polygonAt(sp.x, sp.y);
+    if (poly) {
+      this.dropPoly = poly.id;
+    } else {
+      for (const c of this.circles()) {
+        if (Math.hypot(c.cx.toNumber() - wx, c.cy.toNumber() - wy) < c.r.toNumber()) {
+          this.dropCirc = c.id;
+          break;
+        }
       }
     }
     const denom = this.shiftDown ? 2 : 1;
@@ -820,6 +1206,18 @@ export class PlaneScene implements Scene {
             this.selection.add(v.id);
           }
         }
+        for (const poly of this.polygons()) {
+          if (poly.vertices.every((v) => inside(this.toScreen(v.x, v.y)))) {
+            this.selection.add(poly.id);
+          }
+        }
+        for (const c of this.circles()) {
+          const s = this.toScreen(c.cx, c.cy);
+          const R = c.r.toNumber() * this.scale;
+          if (s.x - R >= x0 && s.x + R <= x1 && s.y - R >= y0 && s.y + R <= y1) {
+            this.selection.add(c.id);
+          }
+        }
       }
       return;
     }
@@ -831,10 +1229,31 @@ export class PlaneScene implements Scene {
       } else if (g.type === 'vec-head') {
         const d = this.headDelta(g.id, p.x, p.y);
         if (d) this.ctx.session.setVectorData(g.id, d.dx, d.dy, true); // коммит
+      } else if (g.type === 'poly') {
+        const d = this.polyDragDelta(g, p.x, p.y);
+        this.ctx.session.movePolygon(g.id, d.dx, d.dy, true); // коммит
+      } else if (g.type === 'poly-vertex') {
+        const w = this.toWorldSnapped(p.x, p.y);
+        this.ctx.session.setPolygonVertex(g.id, g.index, w.x, w.y, true); // коммит
+      } else if (g.type === 'circ-center') {
+        const w = this.toWorldSnapped(p.x, p.y);
+        this.ctx.session.setCirclePos(g.id, w.x, w.y, true); // коммит
+      } else if (g.type === 'circ-edge') {
+        const c = this.ctx.session.objects.get(g.id);
+        if (c?.kind === 'circle') {
+          this.ctx.session.setCircleRadius(g.id, this.circleRadiusAt({ x: c.cx, y: c.cy }, p.x, p.y), true);
+        }
       } else if (g.type === 'vec-tail' && this.dropPoint) {
         // хвост отпущен на точке — точка выполняет команду и уезжает на нос
         this.ctx.session.movePointBy(this.dropPoint, g.id);
         this.dropPoint = null;
+      } else if (g.type === 'vec-tail' && this.dropPoly) {
+        // хвост отпущен на фигуре — вся фигура проходит путь строем
+        this.ctx.session.movePolygonBy(this.dropPoly, g.id);
+        this.dropPoly = null;
+      } else if (g.type === 'vec-tail' && this.dropCirc) {
+        this.ctx.session.moveCircleBy(this.dropCirc, g.id);
+        this.dropCirc = null;
       }
       // перенос хвоста без точки — команда не менялась, нечего коммитить
       return;
@@ -854,11 +1273,13 @@ export class PlaneScene implements Scene {
     this.ensureOrigin();
     this.labels.update(dt);
     if (this.sumBtn) this.sumBtn.disabled = this.selectedVectors().length !== 2;
-    const anyPtSelected = this.points().some((pt) => this.selection.has(pt.id));
-    if (this.flipXBtn) this.flipXBtn.disabled = !anyPtSelected;
-    if (this.flipYBtn) this.flipYBtn.disabled = !anyPtSelected;
-    if (this.rotCcwBtn) this.rotCcwBtn.disabled = !anyPtSelected;
-    if (this.rotCwBtn) this.rotCwBtn.disabled = !anyPtSelected;
+    const anyMovable = this.points().some((pt) => this.selection.has(pt.id)) ||
+      this.polygons().some((poly) => this.selection.has(poly.id)) ||
+      this.circles().some((c) => this.selection.has(c.id));
+    if (this.flipXBtn) this.flipXBtn.disabled = !anyMovable;
+    if (this.flipYBtn) this.flipYBtn.disabled = !anyMovable;
+    if (this.rotCcwBtn) this.rotCcwBtn.disabled = !anyMovable;
+    if (this.rotCwBtn) this.rotCwBtn.disabled = !anyMovable;
 
     const { step, decimals } = this.gridStep();
     const px = this.scale * step;
@@ -982,6 +1403,10 @@ export class PlaneScene implements Scene {
     // Секущая через две точки (этап D): крутизна — точной дробью
     if (this.showSecant) this.drawSecant(g, w);
 
+    // Фигуры — под точками и стрелками: тело большое, мелкие цели поверх
+    for (const poly of this.polygons()) this.drawPolygon(g, poly);
+    for (const c of this.circles()) this.drawCircle(g, c);
+
     // Точки
     for (const pt of this.points()) {
       const s = this.toScreen(pt.x, pt.y);
@@ -1049,12 +1474,266 @@ export class PlaneScene implements Scene {
       g.restore();
     }
 
+    // Постройка многоугольника: набранные вершины и резинка к курсору
+    this.drawBuild(g);
+
     this.labels.draw(g, theme.gold);
 
     // Молоток у курсора
     const hand = this.handTool();
     if (hand && this.pointer.inside) {
       drawHammer(g, this.pointer.x, this.pointer.y, wobbleAngle(now), visibleLabel(hand));
+    }
+
+    this.updateCursor(hand !== null);
+  }
+
+  /** Направление ресайза обода: по лучу центр→курсор (как у углов фигур). */
+  private edgeCursor(c: CircleObject, sx: number, sy: number): string {
+    const s = this.toScreen(c.cx, c.cy);
+    const ang = Math.atan2(-(sy - s.y), sx - s.x); // экранный Y вниз
+    const oct = Math.round(ang / (Math.PI / 4)) & 3; // 0 →, 1 ↗, 2 ↑, 3 ↖
+    return ['ew-resize', 'nesw-resize', 'ns-resize', 'nwse-resize'][oct]!;
+  }
+
+  /**
+   * Курсор — язык жестов (как у «Лент» и «Площадей»): рука над тем,
+   * что можно схватить, схватившая — пока тащишь, ресайз — над ободом круга,
+   * прицел — в режиме постройки.
+   */
+  private updateCursor(hasHand: boolean): void {
+    this.canvasEl ??= document.getElementById('stage');
+    if (!this.canvasEl) return;
+    let cursor = '';
+    const gt = this.gesture?.type;
+    if (gt === 'circ-edge') {
+      const c = this.gesture && 'id' in this.gesture ? this.ctx?.session.objects.get(this.gesture.id) : null;
+      cursor = c?.kind === 'circle' ? this.edgeCursor(c, this.pointer.x, this.pointer.y) : 'grabbing';
+    } else if (gt === 'point' || gt === 'poly' || gt === 'poly-vertex' || gt === 'circ-center' ||
+               gt === 'vec-head' || gt === 'vec-tail') {
+      cursor = 'grabbing';
+    } else if (!gt && !hasHand && this.pointer.inside) {
+      if (this.buildVerts || this.buildCirc) {
+        cursor = 'crosshair';
+      } else {
+        const circ = this.circleHitAt(this.pointer.x, this.pointer.y);
+        if (circ?.part === 'edge') cursor = this.edgeCursor(circ.c, this.pointer.x, this.pointer.y);
+        else if (circ || this.pointAt(this.pointer.x, this.pointer.y) ||
+                 this.vectorHitAt(this.pointer.x, this.pointer.y) ||
+                 this.polyVertexAt(this.pointer.x, this.pointer.y) ||
+                 this.polygonAt(this.pointer.x, this.pointer.y)) {
+          cursor = 'grab';
+        }
+      }
+    }
+    this.canvasEl.style.cursor = cursor;
+  }
+
+  private drawPolygon(g: CanvasRenderingContext2D, poly: PolygonObject): void {
+    const pts = poly.vertices.map((v) => this.toScreen(v.x, v.y));
+    if (pts.length < 3) return;
+    const selected = this.selection.has(poly.id);
+
+    g.beginPath();
+    pts.forEach((s, i) => (i ? g.lineTo(s.x, s.y) : g.moveTo(s.x, s.y)));
+    g.closePath();
+    g.fillStyle = theme.accent;
+    g.globalAlpha = selected ? 0.16 : 0.07;
+    g.fill();
+    g.globalAlpha = 1;
+    g.strokeStyle = selected ? theme.accent : theme.textSecondary;
+    g.lineWidth = selected ? 2.5 : 2;
+    g.stroke();
+    if (selected) {
+      g.shadowColor = theme.accentGlow;
+      g.shadowBlur = 10;
+      g.stroke();
+      g.shadowBlur = 0;
+    }
+
+    // Вершины: у выделенной — крупные ручки для перетаскивания
+    for (const s of pts) {
+      g.fillStyle = theme.bgTertiary;
+      g.strokeStyle = selected ? theme.accent : theme.textSecondary;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(s.x, s.y, selected ? 5 : 3.5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
+
+    // хвост стрелки над фигурой — золотой контур: «команда наготове»
+    if (this.dropPoly === poly.id) {
+      g.strokeStyle = theme.gold;
+      g.lineWidth = 3;
+      g.beginPath();
+      pts.forEach((s, i) => (i ? g.lineTo(s.x, s.y) : g.moveTo(s.x, s.y)));
+      g.closePath();
+      g.stroke();
+    }
+
+    const cx = pts.reduce((a, s) => a + s.x, 0) / pts.length;
+    const cy = pts.reduce((a, s) => a + s.y, 0) / pts.length;
+
+    // Углы при вершинах: подпись чуть внутрь фигуры от каждой вершины
+    if (poly.showAngles) {
+      g.font = '11px Inter, sans-serif';
+      g.fillStyle = theme.gold;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      for (let i = 0; i < pts.length; i++) {
+        const s = pts[i]!;
+        const dx = cx - s.x;
+        const dy = cy - s.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ang = polygonVertexAngle(poly, i);
+        g.fillText(
+          `${ang.exact ? '' : '≈'}${ang.v.toDisplay()}°`,
+          s.x + (dx / len) * 22, s.y + (dy / len) * 22,
+        );
+      }
+    }
+
+    // Подписи в центре тяжести вершин: имя, площадь, периметр
+    const lines: string[] = [poly.label];
+    if (poly.showArea) {
+      lines.push(polygonIsSimple(poly)
+        ? `S = ${polygonArea(poly).toDisplay()}`
+        : 'стороны пересекаются — S не определена');
+    }
+    if (poly.showPerimeter) {
+      const per = polygonPerimeter(poly);
+      lines.push(`P ${per.exact ? '=' : '≈'} ${per.v.toDisplay()}`);
+    }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (let i = 0; i < lines.length; i++) {
+      g.font = i === 0 ? 'bold 13px Inter, sans-serif' : '12px Inter, sans-serif';
+      g.fillStyle = i === 0 ? (selected ? theme.accent : theme.textPrimary) : theme.textSecondary;
+      g.fillText(lines[i]!, cx, cy + (i - (lines.length - 1) / 2) * 16);
+    }
+  }
+
+  private drawCircle(g: CanvasRenderingContext2D, c: CircleObject): void {
+    const s = this.toScreen(c.cx, c.cy);
+    const R = c.r.toNumber() * this.scale;
+    const selected = this.selection.has(c.id);
+
+    g.beginPath();
+    g.arc(s.x, s.y, R, 0, Math.PI * 2);
+    g.fillStyle = theme.accent;
+    g.globalAlpha = selected ? 0.16 : 0.07;
+    g.fill();
+    g.globalAlpha = 1;
+    g.strokeStyle = selected ? theme.accent : theme.textSecondary;
+    g.lineWidth = selected ? 2.5 : 2;
+    g.stroke();
+    if (selected) {
+      g.shadowColor = theme.accentGlow;
+      g.shadowBlur = 10;
+      g.stroke();
+      g.shadowBlur = 0;
+    }
+    if (this.dropCirc === c.id) {
+      g.strokeStyle = theme.gold;
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(s.x, s.y, R + 4, 0, Math.PI * 2);
+      g.stroke();
+    }
+
+    // центр и (у выделенной) пунктирный радиус к ободу
+    g.fillStyle = theme.bgTertiary;
+    g.strokeStyle = selected ? theme.accent : theme.textSecondary;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(s.x, s.y, selected ? 5 : 3.5, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    if (selected) {
+      g.setLineDash([5, 4]);
+      g.beginPath();
+      g.moveTo(s.x, s.y);
+      g.lineTo(s.x + R, s.y);
+      g.stroke();
+      g.setLineDash([]);
+    }
+
+    const lines: string[] = [c.label];
+    if (c.showRadius) lines.push(`r = ${c.r.toDisplay()}`);
+    if (c.showArea) lines.push(`S = ${circleAreaText(c)}`);
+    if (c.showCircumference) lines.push(`C = ${circleCircumferenceText(c)}`);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (let i = 0; i < lines.length; i++) {
+      g.font = i === 0 ? 'bold 13px Inter, sans-serif' : '12px Inter, sans-serif';
+      g.fillStyle = i === 0 ? (selected ? theme.accent : theme.textPrimary) : theme.textSecondary;
+      g.fillText(lines[i]!, s.x, s.y + 14 + i * 16);
+    }
+  }
+
+  /** Превью постройки: набранные вершины, пунктир-резинка, кольцо замыкания. */
+  private drawBuild(g: CanvasRenderingContext2D): void {
+    // окружность: после клика-центра — пунктирный круг с радиусом у курсора
+    if (this.buildCirc?.center && this.pointer.inside) {
+      const c = this.buildCirc.center;
+      const s = this.toScreen(c.x, c.y);
+      const r = this.circleRadiusAt(c, this.pointer.x, this.pointer.y);
+      const R = r.toNumber() * this.scale;
+      g.strokeStyle = theme.gold;
+      g.lineWidth = 2;
+      g.setLineDash([6, 4]);
+      g.beginPath();
+      g.arc(s.x, s.y, R, 0, Math.PI * 2);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(s.x, s.y);
+      g.lineTo(s.x + R, s.y);
+      g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = theme.gold;
+      g.beginPath();
+      g.arc(s.x, s.y, 4, 0, Math.PI * 2);
+      g.fill();
+      g.font = '12px Inter, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'bottom';
+      g.fillText(`r = ${r.toDisplay()}`, s.x + R / 2, s.y - 6);
+    }
+    if (!this.buildVerts || !this.buildVerts.length) return;
+    const pts = this.buildVerts.map((v) => this.toScreen(v.x, v.y));
+
+    g.strokeStyle = theme.gold;
+    g.lineWidth = 2;
+    g.beginPath();
+    pts.forEach((s, i) => (i ? g.lineTo(s.x, s.y) : g.moveTo(s.x, s.y)));
+    g.stroke();
+
+    if (this.pointer.inside && !this.gesture) {
+      const w = this.toWorldSnapped(this.pointer.x, this.pointer.y);
+      const c = this.toScreen(w.x, w.y);
+      g.setLineDash([5, 4]);
+      g.beginPath();
+      g.moveTo(pts[pts.length - 1]!.x, pts[pts.length - 1]!.y);
+      g.lineTo(c.x, c.y);
+      g.stroke();
+      g.setLineDash([]);
+    }
+
+    for (let i = 0; i < pts.length; i++) {
+      g.fillStyle = theme.gold;
+      g.beginPath();
+      g.arc(pts[i]!.x, pts[i]!.y, 4, 0, Math.PI * 2);
+      g.fill();
+    }
+    // ≥3 вершин: первая предлагает замкнуться — кольцо-мишень
+    if (pts.length >= 3) {
+      const near = Math.hypot(pts[0]!.x - this.pointer.x, pts[0]!.y - this.pointer.y) <= POLY_CLOSE_R;
+      g.strokeStyle = theme.gold;
+      g.lineWidth = near ? 3 : 1.5;
+      g.beginPath();
+      g.arc(pts[0]!.x, pts[0]!.y, POLY_CLOSE_R - 4, 0, Math.PI * 2);
+      g.stroke();
     }
   }
 

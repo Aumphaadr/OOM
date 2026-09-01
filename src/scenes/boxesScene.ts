@@ -2,9 +2,10 @@ import { Scene, SceneContext } from './scene';
 import { theme } from '../render/theme';
 import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, ShakeAnim, SwingAnim, wobbleAngle } from '../render/motion';
-import { NumberObject, visibleLabel } from '../core/model';
-import { Rational } from '../core/rational';
+import { NumberObject, visibleLabel, formatVarValue } from '../core/model';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
+import { evalConstFormula } from '../core/formula';
+import { loadSettings } from '../ui/settings';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
 
 const BOX_W = 104;
@@ -39,20 +40,12 @@ export class BoxesScene implements Scene {
   private band: { x0: number; y0: number; x1: number; y1: number; additive: boolean } | null = null;
   /** Групповое перетаскивание: смещение каждой выделенной коробки от курсора. */
   private groupDrag: Map<string, { dx: number; dy: number }> | null = null;
-  /** Протяжка ползунка переменной. */
-  private sliderDrag: NumberObject | null = null;
-
   private readonly shakes = new Map<string, ShakeAnim>();
   private readonly swing = new SwingAnim();
   private readonly labels = new FlyingLabels();
-
+  /** ПКМ-карточка переменной: значение (выражением), запись, видимость. */
   private varCard: HTMLElement | null = null;
-  private varCardId: string | null = null;
-  private readonly outsideClick = (e: PointerEvent): void => {
-    if (this.varCard && !this.varCard.hidden && !this.varCard.contains(e.target as Node)) {
-      if ((e.target as HTMLElement).id !== 'stage') this.hideVarCard();
-    }
-  };
+  private varCardFor: string | null = null;
 
   private readonly keyHandler = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
@@ -61,7 +54,10 @@ export class BoxesScene implements Scene {
       e.preventDefault();
       this.deleteSelection();
     }
-    if (e.key === 'Escape') this.selection.clear();
+    if (e.key === 'Escape') {
+      this.selection.clear();
+      if (this.varCard) this.varCard.hidden = true;
+    }
 
     if ((e.ctrlKey || e.metaKey) && this.ctx) {
       const k = e.code; // физический код: работает на любой раскладке
@@ -100,8 +96,6 @@ export class BoxesScene implements Scene {
   attach(ctx: SceneContext): void {
     this.ctx = ctx;
     window.addEventListener('keydown', this.keyHandler);
-    document.addEventListener('pointerdown', this.outsideClick);
-    this.buildVarCard();
     this.unsubscribe = ctx.session.on((e) => {
       if (e.kind === 'tool-applied') {
         const pos = this.posOf(e.objectId);
@@ -124,7 +118,7 @@ export class BoxesScene implements Scene {
 
   detach(): void {
     window.removeEventListener('keydown', this.keyHandler);
-    document.removeEventListener('pointerdown', this.outsideClick);
+    document.removeEventListener('click', this.varCardOutside);
     this.varCard?.remove();
     this.varCard = null;
     this.unsubscribe?.();
@@ -132,6 +126,109 @@ export class BoxesScene implements Scene {
     this.ctx = null;
     this.band = null;
     this.groupDrag = null;
+  }
+
+  // ---------- карточка переменной ----------
+
+  private readonly varCardOutside = (ev: MouseEvent): void => {
+    if (this.varCard && !this.varCard.hidden && !this.varCard.contains(ev.target as Node)) {
+      this.varCard.hidden = true;
+    }
+  };
+
+  private ensureVarCard(): HTMLElement {
+    if (!this.varCard) {
+      this.varCard = document.createElement('div');
+      this.varCard.className = 'fig-card';
+      this.varCard.hidden = true;
+      document.body.appendChild(this.varCard);
+      document.addEventListener('click', this.varCardOutside);
+    }
+    return this.varCard;
+  }
+
+  private varCardObj(): NumberObject | null {
+    const o = this.varCardFor ? this.ctx?.session.objects.get(this.varCardFor) : null;
+    return o && o.kind === 'number' && o.variable ? o : null;
+  }
+
+  private openVarCard(obj: NumberObject, sx: number, sy: number): void {
+    const card = this.ensureVarCard();
+    const vr = obj.variable!;
+    this.varCardFor = obj.id;
+    const f = vr.format;
+    card.innerHTML = `
+      <div class="fig-card-title">${vr.name} — переменная</div>
+      <label class="field" title="Число или выражение: «3+6», «3/8», «sqrt(9)» — считается точно и присваивается ходом (мимо молотков)">значение
+        <input class="vc-value" spellcheck="false" /></label>
+      <label class="field" title="Формат ЗАПИСИ значения — личная линейка коробки; само значение не меняется">запись
+        <select class="vc-kind">
+          <option value="dec"${!f || f.kind === 'dec' ? ' selected' : ''}>десятичная</option>
+          <option value="frac"${f?.kind === 'frac' ? ' selected' : ''}>дробь /n</option>
+        </select></label>
+      <label class="field vc-param-label"><span class="vc-param-cap"></span><input class="vc-param" /></label>
+      <label class="field tp-check" title="Спрятанное значение — полу-неизвестная: имя видно, содержимое восстанавливают по ударам"><input type="checkbox" class="vc-show"${vr.showValue !== false ? ' checked' : ''}/> показывать значение</label>
+    `;
+    const valueInp = card.querySelector<HTMLInputElement>('.vc-value')!;
+    const kindSel = card.querySelector<HTMLSelectElement>('.vc-kind')!;
+    const paramLabel = card.querySelector<HTMLElement>('.vc-param-label')!;
+    const paramInp = card.querySelector<HTMLInputElement>('.vc-param')!;
+    const showChk = card.querySelector<HTMLInputElement>('.vc-show')!;
+
+    valueInp.value = obj.value.toDisplay();
+    const paramCap = paramLabel.querySelector<HTMLElement>('.vc-param-cap')!;
+    const syncParam = (): void => {
+      const cur = this.varCardObj()?.variable?.format;
+      if (kindSel.value === 'dec') {
+        paramCap.textContent = 'знаков после запятой';
+        paramInp.placeholder = 'авто';
+        paramInp.value = cur?.kind === 'dec' && cur.digits !== null ? String(cur.digits) : '';
+      } else {
+        paramCap.textContent = 'знаменатель';
+        paramInp.placeholder = '8';
+        paramInp.value = cur?.kind === 'frac' ? String(cur.den) : '';
+      }
+    };
+    syncParam();
+
+    valueInp.addEventListener('change', () => {
+      const o = this.varCardObj();
+      if (!o) return;
+      const v = evalConstFormula(valueInp.value.trim());
+      valueInp.classList.toggle('bad', !v);
+      if (!v) return;
+      this.ctx?.session.setVariableValue(o.id, v, true); // ход мимо молотков
+      valueInp.value = o.value.toDisplay(); // границы могли поджать
+    });
+    const applyFormat = (): void => {
+      const o = this.varCardObj();
+      if (!o?.variable) return;
+      if (kindSel.value === 'dec') {
+        const raw = paramInp.value.trim();
+        const digits = raw === '' ? null : Math.max(0, Math.min(10, Math.floor(Number(raw)) || 0));
+        o.variable.format = { kind: 'dec', digits };
+        paramInp.classList.remove('bad');
+      } else {
+        const den = Math.floor(Number(paramInp.value));
+        if (!Number.isFinite(den) || den < 2 || den > 1000) {
+          paramInp.classList.add('bad'); // формат не трогаем, пока знаменатель не читается
+          return;
+        }
+        paramInp.classList.remove('bad');
+        o.variable.format = { kind: 'frac', den };
+      }
+    };
+    kindSel.addEventListener('change', () => { syncParam(); applyFormat(); });
+    paramInp.addEventListener('change', applyFormat);
+    showChk.addEventListener('change', () => {
+      const o = this.varCardObj();
+      if (o?.variable) o.variable.showValue = showChk.checked;
+    });
+
+    const stage = document.getElementById('stage')?.getBoundingClientRect();
+    card.style.left = `${(stage?.left ?? 0) + sx + 10}px`;
+    card.style.top = `${(stage?.top ?? 0) + sy + 10}px`;
+    card.hidden = false;
   }
 
   private shakeFor(id: string): ShakeAnim {
@@ -192,87 +289,10 @@ export class BoxesScene implements Scene {
     return { x: pos.x + BOX_W - 4, y: pos.y + 4 };
   }
 
-  /** Протяжка ползунка: позиция курсора → значение в границах переменной. */
-  private slideTo(obj: NumberObject, px: number, commit = false): void {
-    if (!this.ctx || !obj.variable) return;
-    const pos = obj.scenePos.get(this.id);
-    if (!pos) return;
-    const t = Math.min(Math.max((px - pos.x) / BOX_W, 0), 1);
-    const minF = obj.variable.min.toNumber();
-    const maxF = obj.variable.max.toNumber();
-    const raw = minF + t * (maxF - minF);
-    this.ctx.session.setVariableValue(obj.id, Rational.of(Math.round(raw * 1e6), 1e6), commit);
-  }
 
-  private buildVarCard(): void {
-    const host = document.querySelector('.stage-wrap');
-    if (!host) return;
-    this.varCard = document.createElement('div');
-    this.varCard.className = 'tape-popup';
-    this.varCard.hidden = true;
-    this.varCard.innerHTML = `
-      <div class="task-head"><b>Переменная</b>
-        <span class="task-actions"><button id="vc-close" class="btn ghost" title="Закрыть">✕</button></span>
-      </div>
-      <div class="series-row">
-        <label class="field">имя<input id="vc-name" maxlength="2" /></label>
-        <label class="field">шаг<input id="vc-step" /></label>
-      </div>
-      <div class="series-row">
-        <label class="field">от<input id="vc-min" /></label>
-        <label class="field">до<input id="vc-max" /></label>
-      </div>
-      <button id="vc-apply" class="btn primary">Применить</button>
-      <p id="vc-status" class="hint" hidden></p>
-    `;
-    host.appendChild(this.varCard);
-    this.varCard.querySelector('#vc-close')!.addEventListener('click', () => this.hideVarCard());
-    this.varCard.querySelector('#vc-apply')!.addEventListener('click', () => this.applyVarCard());
-  }
 
-  private openVarCard(obj: NumberObject, x: number, y: number): void {
-    if (!this.varCard || !obj.variable) return;
-    this.varCardId = obj.id;
-    const q = <T extends HTMLElement>(sel: string) => this.varCard!.querySelector<T>(sel)!;
-    q<HTMLInputElement>('#vc-name').value = obj.variable.name;
-    q<HTMLInputElement>('#vc-min').value = obj.variable.min.toDisplay();
-    q<HTMLInputElement>('#vc-max').value = obj.variable.max.toDisplay();
-    q<HTMLInputElement>('#vc-step').value = obj.variable.step.toDisplay();
-    q('#vc-status').hidden = true;
-    const host = this.varCard.parentElement!;
-    this.varCard.hidden = false;
-    const sx = x * this.zoom + this.pan.x;
-    const sy = y * this.zoom + this.pan.y;
-    this.varCard.style.left = `${Math.min(Math.max(sx, 10), host.clientWidth - 280)}px`;
-    this.varCard.style.top = `${Math.min(Math.max(sy + 12, 10), host.clientHeight - 190)}px`;
-  }
 
-  private hideVarCard(): void {
-    if (this.varCard) this.varCard.hidden = true;
-    this.varCardId = null;
-  }
 
-  private applyVarCard(): void {
-    if (!this.ctx || !this.varCard || !this.varCardId) return;
-    const q = <T extends HTMLElement>(sel: string) => this.varCard!.querySelector<T>(sel)!;
-    const status = q('#vc-status');
-    const name = q<HTMLInputElement>('#vc-name').value.trim() || 'a';
-    const min = Rational.parse(q<HTMLInputElement>('#vc-min').value);
-    const max = Rational.parse(q<HTMLInputElement>('#vc-max').value);
-    const step = Rational.parse(q<HTMLInputElement>('#vc-step').value);
-    if (!min || !max || !step) {
-      status.textContent = '✗ не понимаю границы или шаг';
-      status.hidden = false;
-      return;
-    }
-    if (min.compare(max) >= 0 || step.sign() <= 0) {
-      status.textContent = '✗ нужно: от < до, шаг > 0';
-      status.hidden = false;
-      return;
-    }
-    this.ctx.session.setVariableDef(this.varCardId, { name, min, max, step });
-    this.hideVarCard();
-  }
 
   private deleteSelection(): void {
     if (!this.ctx) return;
@@ -306,9 +326,9 @@ export class BoxesScene implements Scene {
         this.ctx.dropHand();
         return;
       }
-      const target = this.boxAt(p.x, p.y);
-      if (target?.variable) this.openVarCard(target, p.x, p.y);
-      else this.hideVarCard();
+      // ПКМ по переменной — карточка значения и записи
+      const box = this.boxAt(p.x, p.y);
+      if (box?.variable) this.openVarCard(box, raw.x, raw.y);
       return;
     }
     if (p.button !== 0) return;
@@ -319,31 +339,6 @@ export class BoxesScene implements Scene {
       const target = this.boxAt(head.x, head.y) ?? this.boxAt(p.x, p.y);
       if (target) this.ctx.hit(target.id);
       return;
-    }
-
-    this.hideVarCard();
-
-    // Бейдж имени переменной — карточка настроек (имя, границы, шаг)
-    for (const obj of this.ctx.session.objects.values()) {
-      if (obj.kind !== 'number' || !obj.variable) continue;
-      const pos = obj.scenePos.get(this.id);
-      if (!pos) continue;
-      if (p.x >= pos.x && p.x <= pos.x + 30 && p.y >= pos.y && p.y <= pos.y + 22) {
-        this.openVarCard(obj, p.x, p.y);
-        return;
-      }
-    }
-
-    // Ползунок переменной — зона под коробкой (крутить можно и в запертых заданиях)
-    for (const obj of this.ctx.session.objects.values()) {
-      if (obj.kind !== 'number' || !obj.variable) continue;
-      const pos = obj.scenePos.get(this.id);
-      if (!pos) continue;
-      if (p.x >= pos.x - 6 && p.x <= pos.x + BOX_W + 6 && p.y >= pos.y + BOX_H + 2 && p.y <= pos.y + BOX_H + 18) {
-        this.sliderDrag = obj;
-        this.slideTo(obj, p.x);
-        return;
-      }
     }
 
     const box = this.boxAt(p.x, p.y);
@@ -387,10 +382,6 @@ export class BoxesScene implements Scene {
     }
     const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
     this.pointer = { x: p.x, y: p.y, inside: true };
-    if (this.sliderDrag) {
-      this.slideTo(this.sliderDrag, p.x);
-      return;
-    }
     if (this.groupDrag && this.ctx) {
       for (const [id, off] of this.groupDrag) {
         const obj = this.ctx.session.objects.get(id);
@@ -403,15 +394,9 @@ export class BoxesScene implements Scene {
     }
   }
 
-  onPointerUp(raw: { x: number; y: number; button: number }): void {
+  onPointerUp(_raw: { x: number; y: number; button: number }): void {
     if (this.panDrag) {
       this.panDrag = null;
-      return;
-    }
-    const p = { ...raw, x: (raw.x - this.pan.x) / this.zoom, y: (raw.y - this.pan.y) / this.zoom };
-    if (this.sliderDrag) {
-      this.slideTo(this.sliderDrag, p.x, true); // фиксация: журнал + субтитр
-      this.sliderDrag = null;
       return;
     }
     this.groupDrag = null;
@@ -453,12 +438,14 @@ export class BoxesScene implements Scene {
     const head = hand ? hammerHeadPoint(this.pointer.x, this.pointer.y) : null;
     const targeted = head ? (this.boxAt(head.x, head.y) ?? this.boxAt(this.pointer.x, this.pointer.y)) : null;
 
+    // шлейф истории — глобальная настройка (⚙), по умолчанию выключен
+    const trailOn = loadSettings().showTrail;
     for (const obj of this.ctx.session.objects.values()) {
       if (obj.kind !== 'number') continue;
       const pos = this.ensurePos(obj, w);
       const shake = this.shakes.get(obj.id)?.update(dt) ?? 0;
       const selected = this.selection.has(obj.id);
-      this.drawBox(g, obj, pos, shake, obj === targeted, selected, selected);
+      this.drawBox(g, obj, pos, shake, obj === targeted, selected, selected && trailOn);
     }
 
     // Крестики на выделенных коробках (рука пуста, конструирование открыто)
@@ -571,45 +558,35 @@ export class BoxesScene implements Scene {
     g.shadowBlur = 0;
     g.setLineDash([]);
 
-    // Значение
-    const text = obj.value.toDisplay();
-    g.fillStyle = theme.textPrimary;
-    g.font = `bold ${text.length > 6 ? 18 : 24}px Inter, sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(text, pos.x + BOX_W / 2, pos.y + BOX_H / 2);
-
-    // Переменная: имя-бейдж и ползунок под коробкой
     if (obj.variable) {
-      g.fillStyle = theme.accent;
-      g.font = 'bold 13px Inter, sans-serif';
-      g.textAlign = 'left';
-      g.textBaseline = 'top';
-      g.fillText(obj.variable.name, pos.x + 7, pos.y + 5);
-
-      const trackY = pos.y + BOX_H + 10;
-      g.strokeStyle = theme.border;
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(pos.x, trackY);
-      g.lineTo(pos.x + BOX_W, trackY);
-      g.stroke();
-
-      const minF = obj.variable.min.toNumber();
-      const maxF = obj.variable.max.toNumber();
-      const t = maxF > minF ? (obj.value.toNumber() - minF) / (maxF - minF) : 0;
-      g.fillStyle = theme.accent;
-      g.strokeStyle = theme.accentBorder;
-      g.lineWidth = 1.5;
-      g.beginPath();
-      g.arc(pos.x + Math.min(Math.max(t, 0), 1) * BOX_W, trackY, 6, 0, Math.PI * 2);
-      g.fill();
-      g.stroke();
+      // Переменная: лицо коробки — ИМЯ-гравировка, значение — строкой ниже
+      // в личном формате записи (спрятанное значение честно не рисуем)
+      const showVal = obj.variable.showValue !== false;
+      g.fillStyle = theme.textPrimary;
+      g.font = 'bold 26px Inter, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(obj.variable.name, pos.x + BOX_W / 2, pos.y + BOX_H / 2 - (showVal ? 12 : 0));
+      if (showVal) {
+        const valText = formatVarValue(obj.value, obj.variable.format);
+        g.fillStyle = theme.textSecondary;
+        g.font = `${valText.length > 9 ? 12 : 15}px Inter, sans-serif`;
+        g.fillText(valText, pos.x + BOX_W / 2, pos.y + BOX_H / 2 + 18);
+      }
+    } else {
+      // Значение
+      const text = obj.value.toDisplay();
+      g.fillStyle = theme.textPrimary;
+      g.font = `bold ${text.length > 6 ? 18 : 24}px Inter, sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, pos.x + BOX_W / 2, pos.y + BOX_H / 2);
     }
 
-    // Шлейф истории — у выделенных, длинный хвост прячем за «…»
+    // Шлейф истории — у выделенных, длинный хвост прячем за «…».
+    // У переменной со спрятанным значением шлейфа нет: он выдал бы тайну.
     const past = obj.trail.slice(0, -1);
-    if (showTrail && past.length) {
+    if (showTrail && past.length && (!obj.variable || obj.variable.showValue !== false)) {
       const shown = past.slice(-TRAIL_MAX);
       const prefix = past.length > TRAIL_MAX ? '… → ' : '';
       g.font = '12px Inter, sans-serif';
@@ -617,7 +594,7 @@ export class BoxesScene implements Scene {
       g.fillStyle = theme.textSecondary;
       g.globalAlpha = 0.7;
       const trailText = prefix + shown.map((v) => v.toDisplay()).join(' → ') + ' →';
-      g.fillText(trailText, pos.x + BOX_W / 2, pos.y + BOX_H + (obj.variable ? 28 : 16));
+      g.fillText(trailText, pos.x + BOX_W / 2, pos.y + BOX_H + 16);
       g.globalAlpha = 1;
     }
 

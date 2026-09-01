@@ -309,3 +309,24 @@ export function toolToFormula(tool: Tool): string | null {
   }
   return acc;
 }
+
+/**
+ * Числовое выражение без x: «3+6», «3/8», «2(1+4)», «sqrt(9)». Возвращает
+ * точное значение или null — выражение не читается, содержит x или отказ
+ * (√ из отрицательного). Для полей ввода значений (переменная в «Коробках»).
+ */
+export function evalConstFormula(text: string): Rational | null {
+  const ast = parseFormula(text);
+  if (!ast || hasX(ast)) return null;
+  return evalRat(ast, Rational.of(0));
+}
+
+function hasX(n: FormulaNode): boolean {
+  switch (n.k) {
+    case 'num': return false;
+    case 'x': return true;
+    case 'bin': return hasX(n.a) || hasX(n.b);
+    case 'neg':
+    case 'fn': return hasX(n.a);
+  }
+}

@@ -62,7 +62,7 @@
     },
     {
       "id": "variable-slider",
-      "title": "Переменная: число на ползунке",
+      "title": "Переменная: коробка с именем",
       "file": "chapters/variable-slider.html"
     },
     {
@@ -114,6 +114,11 @@
       "id": "plane-cells",
       "title": "Плоскость: клетки под следом",
       "file": "chapters/plane-cells.html"
+    },
+    {
+      "id": "plane-shapes",
+      "title": "Фигуры: построй и измерь",
+      "file": "chapters/plane-shapes.html"
     },
     {
       "id": "stats-basics",
