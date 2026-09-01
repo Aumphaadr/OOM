@@ -2,6 +2,8 @@ import { Rational, floorRational } from './rational';
 import {
   MathObject, NumberObject, TapeObject, UnknownObject, RectObject, EquationObject, PointObject, VectorObject,
   CuboidObject, cuboidVolume, cuboidDims, AngleObject, sinDeg, degMod360, FunctionObject, Tool,
+  PolygonObject, PolyVertex, polygonArea, polygonIsSimple,
+  CircleObject, circleAreaText,
   makeTool, makeCompositeTool, makeVarTool, toolInvertsSticker, exprFor, toolLabel, subtitleFor,
   tapePieceLabels, tapeNumerator, rectPieceAreas, unknownValue, isNeutralAction, PrimitiveOp, VarOp,
   LinForm, linFormEval, linFormText,
@@ -33,6 +35,8 @@ export type SessionEvent =
   | { kind: 'transfer'; from: NumberObject; to: NumberObject; note: string }
   | { kind: 'angle-set'; object: AngleObject; note: string }
   | { kind: 'function-changed'; object: FunctionObject; note: string }
+  | { kind: 'polygon-changed'; object: PolygonObject; note: string }
+  | { kind: 'circle-changed'; object: CircleObject; note: string }
   | { kind: 'function-refused'; object: FunctionObject; note: string }
   | { kind: 'undo'; objectId: string; note: string };
 
@@ -61,6 +65,8 @@ interface AngleState { deg: Rational }
 
 interface FunctionState { formula: string }
 
+interface CircleState { cx: Rational; cy: Rational; r: Rational }
+
 type LogEntry =
   | { objectId: string; kind: 'number'; before: Rational; after: Rational }
   | { objectId: string; kind: 'tape'; before: TapeState; after: TapeState }
@@ -74,7 +80,9 @@ type LogEntry =
   | { objectId: string; kind: 'removal'; object: MathObject }
   | { kind: 'transfer'; fromId: string; toId: string; amount: Rational }
   | { objectId: string; kind: 'angle'; before: AngleState; after: AngleState }
-  | { objectId: string; kind: 'function'; before: FunctionState; after: FunctionState };
+  | { objectId: string; kind: 'function'; before: FunctionState; after: FunctionState }
+  | { objectId: string; kind: 'polygon'; before: PolyVertex[]; after: PolyVertex[] }
+  | { objectId: string; kind: 'circle'; before: CircleState; after: CircleState };
 
 const TAPE_MODE_MIN = 1; // «/1» — целая лента без швов, резать нечего
 const TAPE_MODE_MAX = 100;
@@ -115,10 +123,20 @@ export class Session {
     return obj;
   }
 
-  spawnVariable(name: string, min: Rational, max: Rational, step: Rational): NumberObject {
+  /**
+   * Переменная — число с ручкой. По умолчанию БЕЗ границ (−∞…+∞) и без
+   * зашитого шага: шаг подстраивает сцена под свой масштаб. Границы и шаг
+   * задаются только заготовками упражнений (сериализация их хранит).
+   */
+  spawnVariable(
+    name: string,
+    min: Rational | null = null,
+    max: Rational | null = null,
+    step: Rational | null = null,
+  ): NumberObject {
     const obj = this.spawnObject(Rational.of(0));
     obj.variable = { name, min, max, step };
-    // стартовое значение — ноль, зажатый в границы
+    // стартовое значение — ноль, зажатый в границы (если они есть)
     obj.value = this.clampToVariable(obj, Rational.of(0));
     obj.trail.splice(0, obj.trail.length, obj.value);
     return obj;
@@ -126,12 +144,14 @@ export class Session {
 
   private clampToVariable(obj: NumberObject, v: Rational): Rational {
     const vr = obj.variable!;
-    if (v.compare(vr.min) < 0) return vr.min;
-    if (v.compare(vr.max) > 0) return vr.max;
-    // прищёлкиваем к сетке min + k·step
-    const k = v.sub(vr.min).div(vr.step);
-    const snapped = Rational.of((k.num * 2n + k.den) / (k.den * 2n)); // округление к ближайшему
-    return vr.min.add(snapped.mul(vr.step));
+    if (vr.min && v.compare(vr.min) < 0) return vr.min;
+    if (vr.max && v.compare(vr.max) > 0) return vr.max;
+    if (!vr.step) return v; // без зашитого шага: снап делает сцена по масштабу
+    // прищёлкиваем к сетке base + k·step
+    const base = vr.min ?? Rational.of(0);
+    const k = v.sub(base).div(vr.step);
+    const snapped = Rational.of((k.num * 2n + (k.num < 0n ? -k.den : k.den)) / (k.den * 2n));
+    return base.add(snapped.mul(vr.step));
   }
 
   /** База значения на время протяжки ползунка (для одной записи в журнал). */
@@ -159,29 +179,6 @@ export class Session {
     return true;
   }
 
-  /**
-   * Настройка переменной: имя, границы, шаг. Значение перезажимается
-   * в новые рамки (с записью в журнал, если оно изменилось).
-   */
-  setVariableDef(objectId: string, def: { name: string; min: Rational; max: Rational; step: Rational }): boolean {
-    const obj = this.objects.get(objectId);
-    if (!obj || obj.kind !== 'number' || !obj.variable) return false;
-    if (def.min.compare(def.max) >= 0 || def.step.sign() <= 0) return false;
-    obj.variable = { ...def };
-    const before = obj.value;
-    const clamped = this.clampToVariable(obj, obj.value);
-    if (!clamped.equals(before)) {
-      obj.value = clamped;
-      obj.trail.push(clamped);
-      this.applyLog.push({ objectId, kind: 'number', before, after: clamped });
-    }
-    this.emit({
-      kind: 'var-set',
-      object: obj,
-      note: `${def.name}: диапазон ${def.min.toDisplay()}…${def.max.toDisplay()}, шаг ${def.step.toDisplay()}`,
-    });
-    return true;
-  }
 
   spawnTape(whole: Rational, mode: number | null, label?: string): TapeObject {
     if (label) {
@@ -236,6 +233,8 @@ export class Session {
       : obj.kind === 'cuboid' ? `тело ${obj.label} убрано`
       : obj.kind === 'angle' ? `угол ${obj.label} снят с окружности`
       : obj.kind === 'function' ? `функция ${obj.label} стёрта`
+      : obj.kind === 'polygon' ? `фигура ${obj.label} снята с плоскости`
+      : obj.kind === 'circle' ? `окружность ${obj.label} стёрта с плоскости`
       : `число ${obj.value.toDisplay()} удалено`;
     if (!quiet) this.applyLog.push({ objectId: id, kind: 'removal', object: obj });
     this.objects.delete(id);
@@ -833,6 +832,298 @@ export class Session {
       note: `⚒ ${subtitleFor(input, tool, out)} — точка ${pt.label} в (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
     });
     return pt;
+  }
+
+  // ---------- многоугольники (сцена «Плоскость», построения) ----------
+
+  private polyCounter = 0;
+
+  /** Многоугольник по списку вершин (≥3) в порядке обхода. */
+  spawnPolygon(vertices: PolyVertex[]): PolygonObject | null {
+    if (vertices.length < 3) return null;
+    const obj: PolygonObject = {
+      kind: 'polygon',
+      id: nextId('poly'),
+      label: `М${++this.polyCounter}`,
+      vertices: vertices.map((v) => ({ x: v.x, y: v.y })),
+      showArea: true,
+      showPerimeter: false,
+      showAngles: false,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  /** База транзиентного жеста: вершины на момент его начала. */
+  private readonly polyDragBase = new Map<string, PolyVertex[]>();
+
+  private polyBase(p: PolygonObject): PolyVertex[] {
+    if (!this.polyDragBase.has(p.id)) {
+      this.polyDragBase.set(p.id, p.vertices.map((v) => ({ x: v.x, y: v.y })));
+    }
+    return this.polyDragBase.get(p.id)!;
+  }
+
+  private commitPoly(p: PolygonObject, note: string): boolean {
+    const before = this.polyDragBase.get(p.id)!;
+    this.polyDragBase.delete(p.id);
+    const same = before.length === p.vertices.length &&
+      before.every((v, i) => v.x.equals(p.vertices[i]!.x) && v.y.equals(p.vertices[i]!.y));
+    if (same) return true; // вернулась на место — не ход
+    this.applyLog.push({
+      objectId: p.id, kind: 'polygon', before,
+      after: p.vertices.map((v) => ({ x: v.x, y: v.y })),
+    });
+    this.emit({ kind: 'polygon-changed', object: p, note });
+    return true;
+  }
+
+  /**
+   * Перенос всей фигуры: dx/dy — смещение ОТ НАЧАЛА жеста (не приращение),
+   * транзиент до commit — одна запись в журнале на весь жест.
+   */
+  movePolygon(id: string, dx: Rational, dy: Rational, commit = true): boolean {
+    const p = this.objects.get(id);
+    if (!p || p.kind !== 'polygon') return false;
+    const base = this.polyBase(p);
+    p.vertices = base.map((v) => ({ x: v.x.add(dx), y: v.y.add(dy) }));
+    if (!commit) return true;
+    return this.commitPoly(p, `⬠ ${p.label} переехала: смещение (${dx.toDisplay()}; ${dy.toDisplay()})`);
+  }
+
+  /** Перетаскивание вершины (транзиент/коммит — как у точки). */
+  setPolygonVertex(id: string, index: number, x: Rational, y: Rational, commit = true): boolean {
+    const p = this.objects.get(id);
+    if (!p || p.kind !== 'polygon' || index < 0 || index >= p.vertices.length) return false;
+    this.polyBase(p);
+    p.vertices[index] = { x, y };
+    if (!commit) return true;
+    return this.commitPoly(p, `⬠ ${p.label}: вершина → (${x.toDisplay()}; ${y.toDisplay()})`);
+  }
+
+  /** Запись хода-движения (зеркало/поворот/молоток): фиксированные before/after. */
+  private logPolyMotion(p: PolygonObject, before: PolyVertex[], note: string): boolean {
+    const same = before.every((v, i) => v.x.equals(p.vertices[i]!.x) && v.y.equals(p.vertices[i]!.y));
+    if (same) return true; // фигура не сдвинулась — не ход
+    this.applyLog.push({
+      objectId: p.id, kind: 'polygon', before,
+      after: p.vertices.map((v) => ({ x: v.x, y: v.y })),
+    });
+    this.emit({ kind: 'polygon-changed', object: p, note });
+    return true;
+  }
+
+  /** Зеркало: вся фигура отражается от оси, вершина за вершиной. */
+  flipPolygon(id: string, axis: 'x' | 'y'): boolean {
+    const p = this.objects.get(id);
+    if (!p || p.kind !== 'polygon') return false;
+    const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
+    p.vertices = before.map((v) => axis === 'x' ? { x: v.x, y: v.y.neg() } : { x: v.x.neg(), y: v.y });
+    return this.logPolyMotion(p, before, `🪞 ${p.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
+  }
+
+  /** Поворот фигуры на 90° вокруг нуля — как у точек, только всем строем. */
+  rotatePolygon(id: string, dir: 'ccw' | 'cw'): boolean {
+    const p = this.objects.get(id);
+    if (!p || p.kind !== 'polygon') return false;
+    const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
+    p.vertices = before.map((v) =>
+      dir === 'ccw' ? { x: v.y.neg(), y: v.x } : { x: v.y, y: v.x.neg() });
+    return this.logPolyMotion(p, before, `⟳ ${p.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
+  }
+
+  /**
+   * Молоток по фигуре: ×k и ÷k — гомотетия от нуля всем вершинам,
+   * ×(−1) — разворот. ×0 склеил бы фигуру в точку — отказ:
+   * многоугольником она быть перестанет.
+   */
+  polygonApply(polyId: string, toolId: string): boolean {
+    const p = this.objects.get(polyId);
+    const tool = this.tools.get(toolId);
+    if (!p || p.kind !== 'polygon' || !tool) return false;
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({
+        kind: 'tool-rejected', objectId: polyId, tool,
+        reason: 'по фигуре бьют только ×k и ÷k — растяжение от нуля; у вершин адреса, а не значения',
+      });
+      return false;
+    }
+    if (tool.op === 'mul' && tool.n.isZero()) {
+      this.emit({
+        kind: 'tool-rejected', objectId: polyId, tool,
+        reason: 'фигура склеится в одну точку — многоугольником она быть перестанет',
+      });
+      return false;
+    }
+    const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
+    const wasSimple = polygonIsSimple(p);
+    const areaBefore = polygonArea(p);
+    p.vertices = before.map((v) => ({ x: tool.apply(v.x), y: tool.apply(v.y) }));
+    const changed = !before.every((v, i) => v.x.equals(p.vertices[i]!.x) && v.y.equals(p.vertices[i]!.y));
+    if (!changed) return true; // ×1 — не ход
+    tool.hits++;
+    const tail = wasSimple
+      ? `: площадь ${areaBefore.toDisplay()} → ${polygonArea(p).toDisplay()}`
+      : '';
+    return this.logPolyMotion(p, before, `⚒ ${p.label} ${tool.label} — растяжение от нуля${tail}`);
+  }
+
+  /**
+   * Команда-стрелка всей фигуре: каждая вершина проходит один и тот же путь
+   * (dx; dy) — «один путь на всех» буквально. Нулевая команда — не ход.
+   */
+  movePolygonBy(polyId: string, vectorId: string): boolean {
+    const p = this.objects.get(polyId);
+    const vec = this.objects.get(vectorId);
+    if (!p || p.kind !== 'polygon' || !vec || vec.kind !== 'vector') return false;
+    if (vec.dx.isZero() && vec.dy.isZero()) return true; // «стой на месте»
+    const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
+    p.vertices = before.map((v) => ({ x: v.x.add(vec.dx), y: v.y.add(vec.dy) }));
+    return this.logPolyMotion(p, before,
+      `⬠ ${p.label} прошла по ${vec.label} (${vec.dx.toDisplay()}; ${vec.dy.toDisplay()}) всем строем`);
+  }
+
+  // ---------- окружности (сцена «Плоскость», построения) ----------
+
+  private circleCounter = 0;
+
+  /** Окружность: центр-адрес и радиус > 0. */
+  spawnCircle(cx: Rational, cy: Rational, r: Rational): CircleObject | null {
+    if (r.sign() <= 0) return null;
+    const obj: CircleObject = {
+      kind: 'circle',
+      id: nextId('circ'),
+      label: `О${++this.circleCounter}`,
+      cx, cy, r,
+      showRadius: true,
+      showArea: true,
+      showCircumference: false,
+      scenePos: new Map(),
+    };
+    this.objects.set(obj.id, obj);
+    this.emit({ kind: 'object-spawned', object: obj });
+    this.applyLog.push({ objectId: obj.id, kind: 'spawn' });
+    return obj;
+  }
+
+  private readonly circleDragBase = new Map<string, CircleState>();
+
+  private circleBase(c: CircleObject): CircleState {
+    if (!this.circleDragBase.has(c.id)) {
+      this.circleDragBase.set(c.id, { cx: c.cx, cy: c.cy, r: c.r });
+    }
+    return this.circleDragBase.get(c.id)!;
+  }
+
+  private commitCircle(c: CircleObject, note: string): boolean {
+    const before = this.circleDragBase.get(c.id)!;
+    this.circleDragBase.delete(c.id);
+    if (before.cx.equals(c.cx) && before.cy.equals(c.cy) && before.r.equals(c.r)) return true;
+    this.applyLog.push({ objectId: c.id, kind: 'circle', before, after: { cx: c.cx, cy: c.cy, r: c.r } });
+    this.emit({ kind: 'circle-changed', object: c, note });
+    return true;
+  }
+
+  /** Перенос центра (транзиент/коммит — как у точки). */
+  setCirclePos(id: string, cx: Rational, cy: Rational, commit = true): boolean {
+    const c = this.objects.get(id);
+    if (!c || c.kind !== 'circle') return false;
+    this.circleBase(c);
+    c.cx = cx;
+    c.cy = cy;
+    if (!commit) return true;
+    return this.commitCircle(c, `⊙ ${c.label}: центр → (${cx.toDisplay()}; ${cy.toDisplay()})`);
+  }
+
+  /** Радиус за обод: r > 0 (в ноль окружность не схлопывается). */
+  setCircleRadius(id: string, r: Rational, commit = true): boolean {
+    const c = this.objects.get(id);
+    if (!c || c.kind !== 'circle' || r.sign() <= 0) return false;
+    this.circleBase(c);
+    c.r = r;
+    if (!commit) return true;
+    return this.commitCircle(c, `⊙ ${c.label}: r = ${r.toDisplay()}, S = ${circleAreaText(c)}`);
+  }
+
+  private logCircleMotion(c: CircleObject, before: CircleState, note: string): boolean {
+    if (before.cx.equals(c.cx) && before.cy.equals(c.cy) && before.r.equals(c.r)) return true;
+    this.applyLog.push({ objectId: c.id, kind: 'circle', before, after: { cx: c.cx, cy: c.cy, r: c.r } });
+    this.emit({ kind: 'circle-changed', object: c, note });
+    return true;
+  }
+
+  /** Зеркало: центр отражается, радиус не меняется. */
+  flipCircle(id: string, axis: 'x' | 'y'): boolean {
+    const c = this.objects.get(id);
+    if (!c || c.kind !== 'circle') return false;
+    const before: CircleState = { cx: c.cx, cy: c.cy, r: c.r };
+    if (axis === 'x') c.cy = c.cy.neg();
+    else c.cx = c.cx.neg();
+    return this.logCircleMotion(c, before, `🪞 ${c.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
+  }
+
+  /** Поворот на 90° вокруг нуля: едет центр, форма не меняется. */
+  rotateCircle(id: string, dir: 'ccw' | 'cw'): boolean {
+    const c = this.objects.get(id);
+    if (!c || c.kind !== 'circle') return false;
+    const before: CircleState = { cx: c.cx, cy: c.cy, r: c.r };
+    if (dir === 'ccw') {
+      const nx = c.cy.neg();
+      c.cy = c.cx;
+      c.cx = nx;
+    } else {
+      const nx = c.cy;
+      c.cy = c.cx.neg();
+      c.cx = nx;
+    }
+    return this.logCircleMotion(c, before, `⟳ ${c.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
+  }
+
+  /** Молоток по окружности: ×k/÷k — гомотетия (центр ×k, радиус ×|k|). */
+  circleApply(circleId: string, toolId: string): boolean {
+    const c = this.objects.get(circleId);
+    const tool = this.tools.get(toolId);
+    if (!c || c.kind !== 'circle' || !tool) return false;
+    if (tool.op !== 'mul' && tool.op !== 'div') {
+      this.emit({
+        kind: 'tool-rejected', objectId: circleId, tool,
+        reason: 'по окружности бьют только ×k и ÷k — растяжение от нуля',
+      });
+      return false;
+    }
+    if (tool.op === 'mul' && tool.n.isZero()) {
+      this.emit({
+        kind: 'tool-rejected', objectId: circleId, tool,
+        reason: 'окружность склеится в одну точку — радиуса не останется',
+      });
+      return false;
+    }
+    const before: CircleState = { cx: c.cx, cy: c.cy, r: c.r };
+    const areaBefore = circleAreaText(c);
+    c.cx = tool.apply(c.cx);
+    c.cy = tool.apply(c.cy);
+    const nr = tool.apply(c.r);
+    c.r = nr.sign() < 0 ? nr.neg() : nr; // радиус — длина: знак молотка её не разворачивает
+    if (before.cx.equals(c.cx) && before.cy.equals(c.cy) && before.r.equals(c.r)) return true;
+    tool.hits++;
+    return this.logCircleMotion(c, before,
+      `⚒ ${c.label} ${tool.label} — растяжение от нуля: S ${areaBefore} → ${circleAreaText(c)}`);
+  }
+
+  /** Команда-стрелка окружности: центр проходит путь (dx; dy). */
+  moveCircleBy(circleId: string, vectorId: string): boolean {
+    const c = this.objects.get(circleId);
+    const vec = this.objects.get(vectorId);
+    if (!c || c.kind !== 'circle' || !vec || vec.kind !== 'vector') return false;
+    if (vec.dx.isZero() && vec.dy.isZero()) return true;
+    const before: CircleState = { cx: c.cx, cy: c.cy, r: c.r };
+    c.cx = c.cx.add(vec.dx);
+    c.cy = c.cy.add(vec.dy);
+    return this.logCircleMotion(c, before,
+      `⊙ ${c.label} прошла по ${vec.label} (${vec.dx.toDisplay()}; ${vec.dy.toDisplay()})`);
   }
 
   // ---------- кубоиды (сцена «Объёмы») ----------
@@ -1543,6 +1834,18 @@ export class Session {
     if (last.kind === 'function' && obj.kind === 'function') {
       obj.formula = last.before.formula;
       this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label}(x) = ${obj.formula || '…'}` });
+      return true;
+    }
+    if (last.kind === 'polygon' && obj.kind === 'polygon') {
+      obj.vertices = last.before.map((v) => ({ x: v.x, y: v.y }));
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} вернулась на место` });
+      return true;
+    }
+    if (last.kind === 'circle' && obj.kind === 'circle') {
+      obj.cx = last.before.cx;
+      obj.cy = last.before.cy;
+      obj.r = last.before.r;
+      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} вернулась на место` });
       return true;
     }
     if (last.kind === 'angle' && obj.kind === 'angle') {

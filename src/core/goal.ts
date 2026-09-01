@@ -1,6 +1,6 @@
 import { Rational } from './rational';
 import { Session } from './session';
-import { tapePieceLabels, rectPieceAreas, rectPerimeter, linFormText, degMod360 } from './model';
+import { tapePieceLabels, rectPieceAreas, rectPerimeter, linFormText, degMod360, polygonArea, polygonIsSimple } from './model';
 
 /**
  * Цель упражнения — декларативный предикат над состоянием сессии.
@@ -25,7 +25,9 @@ export type GoalSpec =
   | { kind: 'cuboid-size'; w: string; d: string; h: string }      // тело доведено до размеров
   | { kind: 'cuboids-size'; sizes: { w: string; d: string; h: string }[] } // каждый размер представлен телом
   | { kind: 'equation-solved' }                                   // весы v2: достигнута форма x = c
-  | { kind: 'equation-form'; left: string; right: string };       // весы v2: промежуточная форма
+  | { kind: 'equation-form'; left: string; right: string }        // весы v2: промежуточная форма
+  | { kind: 'polygon-area'; area: string; verts?: number }        // есть ПРОСТАЯ фигура с площадью N (и, если задано, числом вершин)
+  | { kind: 'circle-size'; r: string };                           // есть окружность радиуса r
 
 export function checkGoal(session: Session, goal: GoalSpec): boolean {
   const objects = [...session.objects.values()];
@@ -163,6 +165,20 @@ export function checkGoal(session: Session, goal: GoalSpec): boolean {
       const target = Rational.parse(goal.value);
       if (!target) return false;
       return objects.some((o) => o.kind === 'rect' && rectPerimeter(o).equals(target));
+    }
+
+    case 'polygon-area': {
+      const target = Rational.parse(goal.area);
+      if (!target) return false;
+      return objects.some((o) =>
+        o.kind === 'polygon' && polygonIsSimple(o) && polygonArea(o).equals(target) &&
+        (goal.verts === undefined || o.vertices.length === goal.verts));
+    }
+
+    case 'circle-size': {
+      const target = Rational.parse(goal.r);
+      if (!target) return false;
+      return objects.some((o) => o.kind === 'circle' && o.r.equals(target));
     }
 
     case 'rect-size': {

@@ -1,6 +1,6 @@
 import { Rational } from './rational';
 import { Session } from './session';
-import { PrimitiveOp, VarOp } from './model';
+import { PrimitiveOp, VarOp, VarFormat } from './model';
 
 /**
  * Сериализация доски (формат v1). Сохраняются объекты всех типов, инструменты
@@ -22,7 +22,8 @@ export interface BoardJson {
   )[];
   objects: (
     | { kind: 'number'; trail: string[]; scenePos: Record<string, { x: number; y: number }>;
-        variable?: { name: string; min: string; max: string; step: string } }
+        variable?: { name: string; min: string | null; max: string | null; step: string | null;
+          format?: VarFormat; showValue?: boolean } }
     | { kind: 'tape'; label: string; whole: string; mode: number | null;
         /** новые сохранения — позиции-дроби ("1/6"); старые — индексы швов (числа) */
         cuts: (string | number)[]; strictGrid?: boolean; unitLen?: string | null;
@@ -41,6 +42,10 @@ export interface BoardJson {
         scenePos?: Record<string, { x: number; y: number }> }
     | { kind: 'angle'; deg: string }
     | { kind: 'function'; formula: string; color?: string }
+    | { kind: 'polygon'; verts: { x: string; y: string }[];
+        showArea?: boolean; showPerimeter?: boolean; showAngles?: boolean }
+    | { kind: 'circle'; cx: string; cy: string; r: string;
+        showRadius?: boolean; showArea?: boolean; showCircumference?: boolean }
   )[];
 }
 
@@ -65,9 +70,11 @@ export function exportBoard(session: Session): string {
         ...(o.variable && {
           variable: {
             name: o.variable.name,
-            min: rStr(o.variable.min),
-            max: rStr(o.variable.max),
-            step: rStr(o.variable.step),
+            min: o.variable.min ? rStr(o.variable.min) : null,
+            max: o.variable.max ? rStr(o.variable.max) : null,
+            step: o.variable.step ? rStr(o.variable.step) : null,
+            ...(o.variable.format && { format: { ...o.variable.format } }),
+            ...(o.variable.showValue !== undefined && { showValue: o.variable.showValue }),
           },
         }),
       });
@@ -98,6 +105,17 @@ export function exportBoard(session: Session): string {
       data.objects.push({ kind: 'angle', deg: rStr(o.deg) });
     } else if (o.kind === 'function') {
       data.objects.push({ kind: 'function', formula: o.formula, color: o.color });
+    } else if (o.kind === 'polygon') {
+      data.objects.push({
+        kind: 'polygon',
+        verts: o.vertices.map((v) => ({ x: rStr(v.x), y: rStr(v.y) })),
+        showArea: o.showArea, showPerimeter: o.showPerimeter, showAngles: o.showAngles,
+      });
+    } else if (o.kind === 'circle') {
+      data.objects.push({
+        kind: 'circle', cx: rStr(o.cx), cy: rStr(o.cy), r: rStr(o.r),
+        showRadius: o.showRadius, showArea: o.showArea, showCircumference: o.showCircumference,
+      });
     } else if (o.kind === 'vector') {
       data.objects.push({
         kind: 'vector', dx: rStr(o.dx), dy: rStr(o.dy),
@@ -150,9 +168,11 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         if (o.variable) {
           obj.variable = {
             name: o.variable.name,
-            min: rParse(o.variable.min),
-            max: rParse(o.variable.max),
-            step: rParse(o.variable.step),
+            min: o.variable.min ? rParse(o.variable.min) : null,
+            max: o.variable.max ? rParse(o.variable.max) : null,
+            step: o.variable.step ? rParse(o.variable.step) : null,
+            ...(o.variable.format && { format: { ...o.variable.format } }),
+            ...(o.variable.showValue !== undefined && { showValue: o.variable.showValue }),
           };
         }
       } else if (o.kind === 'tape') {
@@ -188,6 +208,20 @@ export function importBoardData(session: Session, data: BoardJson): boolean {
         session.spawnAngle(rParse(o.deg));
       } else if (o.kind === 'function') {
         session.spawnFunction(o.formula, o.color);
+      } else if (o.kind === 'polygon') {
+        const poly = session.spawnPolygon(o.verts.map((v) => ({ x: rParse(v.x), y: rParse(v.y) })));
+        if (poly) {
+          poly.showArea = o.showArea ?? true;
+          poly.showPerimeter = o.showPerimeter ?? false;
+          poly.showAngles = o.showAngles ?? false;
+        }
+      } else if (o.kind === 'circle') {
+        const circ = session.spawnCircle(rParse(o.cx), rParse(o.cy), rParse(o.r));
+        if (circ) {
+          circ.showRadius = o.showRadius ?? true;
+          circ.showArea = o.showArea ?? true;
+          circ.showCircumference = o.showCircumference ?? false;
+        }
       } else if (o.kind === 'vector') {
         const v = session.spawnVector(rParse(o.dx), rParse(o.dy));
         for (const [sceneId, pos] of Object.entries(o.scenePos ?? {})) {

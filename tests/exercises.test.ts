@@ -38,7 +38,8 @@ function countSteps(s: Session, run: () => void): number {
       (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
         e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set' ||
         e.kind === 'point-moved' || e.kind === 'vector-changed' || e.kind === 'cuboid-changed' ||
-        e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed') &&
+        e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed' ||
+        e.kind === 'polygon-changed' || e.kind === 'circle-changed') &&
       !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral);
     if (counted) steps++;
   });
@@ -57,6 +58,8 @@ function hammer(s: Session, op: string): void {
 }
 const tapeByMode = (s: Session, mode: number) =>
   objs(s).find((o) => o.kind === 'tape' && o.mode === mode)!;
+const polyOf = (s: Session) => objs(s).find((o) => o.kind === 'polygon')!;
+const circOf = (s: Session) => objs(s).find((o) => o.kind === 'circle')!;
 
 /** Число-объект с данным значением. */
 const byValue = (s: Session, v: number) =>
@@ -182,6 +185,25 @@ const SOLVERS: Record<string, (s: Session) => void> = {
     s.setVariableValue(objs(s)[0]!.id, R(4), true);
     hammer(s, 'mul');
   },
+
+  // переменная-коробка: значение выражением (карточка) и тайна спрятанного
+  'vr-01': (s) => s.setVariableValue(objs(s)[0]!.id, R(9, 2), true),
+  'vr-01#c1': (s) => hammer(s, 'add'),
+  'vr-02': (s) => {
+    hammer(s, 'mul'); // субтитр «5 × 2 = 10» раскрывает вход
+    hammer(s, 'sub');
+  },
+  'vr-02#c1': (s) => hammer(s, 'add'),
+
+  // фигуры на плоскости: постройка, гомотетия ×k → k², круг
+  'fig-01': (s) =>
+    void s.spawnPolygon([
+      { x: R(0), y: R(0) }, { x: R(4), y: R(0) }, { x: R(0), y: R(3) },
+    ]),
+  'fig-02': (s) => s.polygonApply(polyOf(s).id, tool(s, 'mul').id),
+  'fig-02#c1': (s) => s.polygonApply(polyOf(s).id, tool(s, 'mul').id),
+  'fig-02#b': (s) => s.polygonApply(polyOf(s).id, tool(s, 'mul').id),
+  'fig-03': (s) => s.circleApply(circOf(s).id, tool(s, 'mul').id),
 
   'cmb-01': (s) => {
     const combo = s.addComposite([{ op: 'add', n: R(60) }, { op: 'sub', n: R(1) }], '+59');

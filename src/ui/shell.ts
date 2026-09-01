@@ -2,11 +2,13 @@ import { Session } from '../core/session';
 import { Rational } from '../core/rational';
 import { subtitleFor, visibleLabel, isUnaryOp, toolLabel, PrimitiveOp, VarOp } from '../core/model';
 import { exportBoard, importBoard } from '../core/serialize';
+import { evalConstFormula } from '../core/formula';
 import { CanvasHost } from '../render/canvasHost';
 import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
 import { Reader } from './reader';
 import { icon } from './icons';
 import { diagnosisSummary, diagnosisReport, clearDiagnoses } from './diagnoses';
+import { Settings, loadSettings, saveSettings } from './settings';
 
 const BOARD_STORAGE_KEY = 'oom-board-v1';
 
@@ -26,6 +28,7 @@ export class Shell {
   private readonly hand: HandState = { toolId: null };
   private readonly restrictions: Restrictions = { construct: true };
   private activeScene: Scene | null = null;
+  private readonly settings: Settings = loadSettings();
   private reader: Reader | null = null;
   private readonly sceneCtx: SceneContext;
 
@@ -45,6 +48,7 @@ export class Shell {
     };
 
     this.bindPanels();
+    this.bindSettings();
     this.bindSubtitles();
     this.bindLessons();
     this.bindReader();
@@ -55,7 +59,8 @@ export class Shell {
       if (e.kind === 'tool-added' || e.kind === 'tool-changed') this.renderTools();
       if (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
           e.kind === 'rect-changed' || e.kind === 'cuboid-changed' || e.kind === 'vector-changed' ||
-          e.kind === 'point-moved' || e.kind === 'angle-set' || e.kind === 'undo') this.renderTools();
+          e.kind === 'point-moved' || e.kind === 'angle-set' || e.kind === 'polygon-changed' ||
+          e.kind === 'circle-changed' || e.kind === 'undo') this.renderTools();
       if (e.kind === 'tool-removed') {
         if (this.hand.toolId === e.toolId) this.hand.toolId = null;
         this.renderTools();
@@ -136,6 +141,9 @@ export class Shell {
         wrap.appendChild(panel);
         holder.appendChild(wrap);
       }
+      holder.querySelectorAll<HTMLElement>('section.panel').forEach((sec) => {
+        this.makeCollapsible(sec);
+      });
       holder.hidden = false;
     } else {
       holder.hidden = true;
@@ -181,8 +189,9 @@ export class Shell {
     for (const tool of this.session.tools.values()) {
       const chip = document.createElement('button');
       chip.className = 'tool-chip' + (tool.id === this.hand.toolId ? ' in-hand' : '');
-      const hits = tool.hits > 0 ? `<span class="chip-hits" title="ударов: ${tool.hits}">${tool.hits}</span>` : '';
-      chip.innerHTML = `<span class="ic">${icon('hammer', 13)}</span>${visibleLabel(tool)}${hits}`;
+      const hits = this.settings.showHits && tool.hits > 0
+        ? `<span class="chip-hits" title="ударов: ${tool.hits}">${tool.hits}</span>` : '';
+      chip.innerHTML = `<span class="ic">${icon('hammer', 17)}</span>${visibleLabel(tool)}${hits}`;
       const comboHint = tool.steps && !tool.hidden
         ? ` — комбо: ${tool.steps.map((s) => toolLabel(s.op, s.n)).join(' ∘ ')}`
         : '';
@@ -299,15 +308,18 @@ export class Shell {
     });
 
     const varName = document.getElementById('var-name') as HTMLInputElement;
+    const varValue = document.getElementById('var-value') as HTMLInputElement;
     document.getElementById('spawn-var-btn')!.addEventListener('click', () => {
       const name = varName.value.trim() || 'a';
-      const min = Rational.parse((document.getElementById('var-min') as HTMLInputElement).value);
-      const max = Rational.parse((document.getElementById('var-max') as HTMLInputElement).value);
-      const step = Rational.parse((document.getElementById('var-step') as HTMLInputElement).value);
-      if (!min || !max || !step) return this.say('Диапазон переменной: нужны числа (мин, макс, шаг).');
-      if (min.compare(max) >= 0) return this.say('Минимум должен быть меньше максимума.');
-      if (step.sign() <= 0) return this.say('Шаг ползунка должен быть положительным.');
-      this.session.spawnVariable(name, min, max, step);
+      // стартовое значение — число или выражение («3+6», «3/8»), считается точно
+      const expr = varValue.value.trim();
+      const v = expr === '' ? Rational.of(0) : evalConstFormula(expr);
+      if (!v) return this.say('Не понимаю значение: ' + expr);
+      // без границ и без зашитого шага: скользит по «Числовой прямой»,
+      // шаг подстраивается под текущий масштаб (границы задают упражнения)
+      const obj = this.session.spawnVariable(name);
+      obj.value = v;
+      obj.trail.splice(0, obj.trail.length, v);
       // следующая буква наготове: a → b → c…
       if (/^[a-z]$/i.test(name) && name.toLowerCase() !== 'z') {
         varName.value = String.fromCharCode(name.charCodeAt(0) + 1);
@@ -369,6 +381,94 @@ export class Shell {
     document.addEventListener('click', (ev) => {
       if (!dropdown.hidden && !dropdown.contains(ev.target as Node)) dropdown.hidden = true;
     });
+  }
+
+  // ---------- настройки ----------
+
+  private bindSettings(): void {
+    const btn = document.getElementById('btn-settings')!;
+    const menu = document.getElementById('settings-menu')!;
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.hidden = !menu.hidden;
+    });
+    document.addEventListener('click', (ev) => {
+      if (!menu.hidden && !menu.contains(ev.target as Node) && ev.target !== btn) menu.hidden = true;
+    });
+
+    const hits = document.getElementById('set-hits') as HTMLInputElement;
+    const collapsed = document.getElementById('set-collapsed') as HTMLInputElement;
+    hits.checked = this.settings.showHits;
+    collapsed.checked = this.settings.panelsCollapsed;
+    hits.addEventListener('change', () => {
+      this.settings.showHits = hits.checked;
+      saveSettings(this.settings);
+      this.renderTools();
+    });
+    collapsed.addEventListener('change', () => {
+      this.settings.panelsCollapsed = collapsed.checked;
+      saveSettings(this.settings);
+      // применяем сразу ко всем секциям сайдбара
+      document.querySelectorAll<HTMLElement>('.sidebar section.panel').forEach((sec) => {
+        this.setPanelCollapsed(sec, collapsed.checked);
+      });
+    });
+
+    // дефолтные подписи новых фигур: применяются при создании, сцены читают сами
+    const bindDefault = (id: string, get: () => boolean, set: (v: boolean) => void): void => {
+      const box = document.getElementById(id) as HTMLInputElement;
+      box.checked = get();
+      box.addEventListener('change', () => {
+        set(box.checked);
+        saveSettings(this.settings);
+      });
+    };
+    bindDefault('set-def-area',
+      () => this.settings.showAreaDefault, (v) => { this.settings.showAreaDefault = v; });
+    bindDefault('set-def-perim',
+      () => this.settings.showPerimeterDefault, (v) => { this.settings.showPerimeterDefault = v; });
+    bindDefault('set-def-angles',
+      () => this.settings.showAnglesDefault, (v) => { this.settings.showAnglesDefault = v; });
+    bindDefault('set-trail',
+      () => this.settings.showTrail, (v) => { this.settings.showTrail = v; });
+
+    // стартовые секции (Инструменты, Объекты) — сворачиваемые с самого начала
+    document.querySelectorAll<HTMLElement>('.sidebar section.panel').forEach((sec) => {
+      this.makeCollapsible(sec);
+    });
+  }
+
+  /**
+   * Секция сайдбара сворачивается кликом по заголовку: скрывается всё,
+   * кроме h3 (работает и когда контент вложен в div-обёртку сцены).
+   */
+  private makeCollapsible(section: HTMLElement): void {
+    if (section.dataset.collapsible) return;
+    section.dataset.collapsible = '1';
+    const h3 = section.querySelector('h3');
+    if (!h3) return;
+    h3.style.cursor = 'pointer';
+    h3.title = 'Свернуть/развернуть панель';
+    const caret = document.createElement('span');
+    caret.className = 'panel-caret';
+    caret.textContent = '▾';
+    h3.appendChild(caret);
+    h3.addEventListener('click', () => {
+      this.setPanelCollapsed(section, section.dataset.collapsed !== '1');
+    });
+    if (this.settings.panelsCollapsed) this.setPanelCollapsed(section, true);
+  }
+
+  private setPanelCollapsed(section: HTMLElement, on: boolean): void {
+    const h3 = section.querySelector('h3');
+    if (!h3) return;
+    section.dataset.collapsed = on ? '1' : '';
+    const holder = h3.parentElement!;
+    for (const child of [...holder.children]) {
+      if (child !== h3) (child as HTMLElement).hidden = on;
+    }
+    const caret = h3.querySelector('.panel-caret');
+    if (caret) caret.textContent = on ? '▸' : '▾';
   }
 
   // ---------- уроки и сохранения ----------
@@ -462,7 +562,8 @@ export class Shell {
         this.say(e.note, true);
       } else if (e.kind === 'rect-changed' || e.kind === 'point-moved' || e.kind === 'vector-changed' ||
                  e.kind === 'cuboid-changed' || e.kind === 'transfer' || e.kind === 'angle-set' ||
-                 e.kind === 'function-changed') {
+                 e.kind === 'function-changed' || e.kind === 'polygon-changed' ||
+                 e.kind === 'circle-changed') {
         this.say(e.note);
       } else if (e.kind === 'function-refused') {
         this.say(e.note);

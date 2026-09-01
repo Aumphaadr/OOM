@@ -12,6 +12,27 @@ export interface ObjectBase {
   readonly scenePos: Map<string, { x: number; y: number }>;
 }
 
+/**
+ * Формат ЗАПИСИ значения переменной — личная линейка коробки (как линейки
+ * «Числовой прямой»): dec — десятичная (digits знаков, null — авто),
+ * frac — дробь с заданным знаменателем. Значение живёт отдельно от записи.
+ */
+export type VarFormat =
+  | { kind: 'dec'; digits: number | null }
+  | { kind: 'frac'; den: number };
+
+/** Паспорт переменной: имя-гравировка, границы для заготовок, запись. */
+export interface VariableSpec {
+  name: string;
+  min: Rational | null;
+  max: Rational | null;
+  step: Rational | null;
+  /** Формат записи значения (нет — десятичный авто). */
+  format?: VarFormat;
+  /** false — значение спрятано (полу-неизвестная); по умолчанию показываем. */
+  showValue?: boolean;
+}
+
 /** Число-фишка со значением-состоянием. */
 export interface NumberObject extends ObjectBase {
   readonly kind: 'number';
@@ -19,10 +40,35 @@ export interface NumberObject extends ObjectBase {
   /** История значений (включая текущее) — шлейф для сцен и отладки. */
   readonly trail: Rational[];
   /**
-   * Переменная: число с ручкой. Значение крутится ползунком в границах
-   * [min, max] с шагом step; молотки бьют по ней как по обычному числу.
+   * Переменная: число с именем. Значение крутится ползунком на «Прямой»
+   * (в границах [min, max], если заданы); молотки бьют как по обычному числу.
    */
-  variable?: { name: string; min: Rational; max: Rational; step: Rational };
+  variable?: VariableSpec;
+}
+
+/**
+ * Запись значения в формате переменной. Непредставимое точно — честное
+ * приближение с «≈»: 1/3 десятично — «≈0,333», в линейке /8 — «≈2,67/8»
+ * (стиль лент). Формат не сбрасывается: линейка не виновата, что значение
+ * в неё не влезает.
+ */
+export function formatVarValue(v: Rational, f?: VarFormat | null): string {
+  if (!f || f.kind === 'dec') {
+    const digits = f?.kind === 'dec' ? f.digits : null;
+    if (digits === null) {
+      const d = v.toDisplay();
+      if (!d.includes('/')) return d; // конечная десятичная — как есть
+      const approx = Math.round(v.toNumber() * 1000) / 1000;
+      return `≈${String(approx).replace('.', ',')}`;
+    }
+    const scaled = v.mul(powInt(Rational.of(10), BigInt(digits)));
+    const shown = v.toNumber().toFixed(digits).replace('.', ',');
+    return scaled.isInteger() ? shown : `≈${shown}`;
+  }
+  const num = v.mul(Rational.of(f.den));
+  if (num.isInteger()) return `${num.num}/${f.den}`;
+  const approx = Math.round(num.toNumber() * 100) / 100;
+  return `≈${String(approx).replace('.', ',')}/${f.den}`;
 }
 
 /**
@@ -313,7 +359,214 @@ export interface FunctionObject extends ObjectBase {
   color: string;
 }
 
-export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject | PointObject | VectorObject | CuboidObject | AngleObject | FunctionObject;
+/** Вершина многоугольника — точный адрес, как у точки. */
+export interface PolyVertex { x: Rational; y: Rational }
+
+/**
+ * Многоугольник на плоскости (построение, а не формула): список вершин
+ * в порядке обхода. Площадь — точная (шнуровка), периметр — по ≈-политике
+ * корней (косые стороны иррациональны). Движения — те же, что у точек:
+ * перенос, зеркала, повороты на 90°, гомотетия молотком ×k.
+ */
+export interface PolygonObject extends ObjectBase {
+  kind: 'polygon';
+  readonly label: string; // М1, М2…
+  vertices: PolyVertex[]; // ≥3
+  /** Что подписывать на фигуре (препод прячет, чтобы ученик посчитал сам). */
+  showArea: boolean;
+  showPerimeter: boolean;
+  showAngles: boolean;
+}
+
+/** Площадь по шнуровке — точная дробь; знак обхода снят модулем. */
+export function polygonArea(p: PolygonObject): Rational {
+  let s = Rational.of(0);
+  const v = p.vertices;
+  for (let i = 0; i < v.length; i++) {
+    const a = v[i]!;
+    const b = v[(i + 1) % v.length]!;
+    s = s.add(a.x.mul(b.y).sub(b.x.mul(a.y)));
+  }
+  s = s.div(Rational.of(2));
+  return s.sign() < 0 ? s.neg() : s;
+}
+
+/**
+ * Периметр: сумма длин сторон. Косая сторона — корень; непифагоровы
+ * длины честно приближаются (exact = false → подпись через «≈»).
+ */
+export function polygonPerimeter(p: PolygonObject): { v: Rational; exact: boolean } {
+  let sum = Rational.of(0);
+  let exact = true;
+  const v = p.vertices;
+  for (let i = 0; i < v.length; i++) {
+    const a = v[i]!;
+    const b = v[(i + 1) % v.length]!;
+    const dx = b.x.sub(a.x);
+    const dy = b.y.sub(a.y);
+    const len2 = dx.mul(dx).add(dy.mul(dy));
+    const root = sqrtExact(len2);
+    if (root) {
+      sum = sum.add(root);
+    } else {
+      sum = sum.add(sqrtApprox(len2));
+      exact = false;
+    }
+  }
+  return { v: sum, exact };
+}
+
+/** cos²θ → градусы: табличные углы, у которых квадрат косинуса рационален. */
+const COS2_EXACT: [num: number, den: number, acute: number, obtuse: number][] = [
+  [1, 1, 0, 180], [3, 4, 30, 150], [1, 2, 45, 135], [1, 4, 60, 120], [0, 1, 90, 90],
+];
+
+/**
+ * Внутренний угол при вершине i. Квадрат косинуса — точная дробь
+ * (cos²θ = (a·b)² / (|a|²·|b|²)), поэтому табличные углы (30/45/60/90/
+ * 120/135/150/180) распознаются ТОЧНО; прочие — приближение до 0,1° с «≈».
+ * Вогнутая вершина (изгиб против обхода) даёт 360° − θ.
+ */
+export function polygonVertexAngle(p: PolygonObject, i: number): { v: Rational; exact: boolean } {
+  const n = p.vertices.length;
+  const at = p.vertices[i]!;
+  const prev = p.vertices[(i + n - 1) % n]!;
+  const next = p.vertices[(i + 1) % n]!;
+  const a = { x: prev.x.sub(at.x), y: prev.y.sub(at.y) };
+  const b = { x: next.x.sub(at.x), y: next.y.sub(at.y) };
+  const la = a.x.mul(a.x).add(a.y.mul(a.y));
+  const lb = b.x.mul(b.x).add(b.y.mul(b.y));
+  if (la.isZero() || lb.isZero()) return { v: Rational.of(0), exact: true }; // слипшаяся вершина
+
+  const dot = a.x.mul(b.x).add(a.y.mul(b.y));
+  const cos2 = dot.mul(dot).div(la.mul(lb));
+  let raw: { v: Rational; exact: boolean } | null = null;
+  for (const [num, den, acute, obtuse] of COS2_EXACT) {
+    if (cos2.equals(Rational.of(num, den))) {
+      raw = { v: Rational.of(dot.sign() >= 0 ? acute : obtuse), exact: true };
+      break;
+    }
+  }
+  if (!raw) {
+    const cos = (dot.sign() < 0 ? -1 : 1) * Math.sqrt(cos2.toNumber());
+    const deg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+    raw = { v: Rational.of(Math.round(deg * 10), 10), exact: false };
+  }
+
+  // Вогнутость: изгиб вершины против общего обхода → угол рефлексный.
+  // cross > 0 у вершины, где обход a→b поворачивает влево.
+  const cross = b.x.mul(a.y).sub(b.y.mul(a.x)).sign();
+  let orient = Rational.of(0);
+  for (let k = 0; k < n; k++) {
+    const u = p.vertices[k]!;
+    const w = p.vertices[(k + 1) % n]!;
+    orient = orient.add(u.x.mul(w.y).sub(w.x.mul(u.y)));
+  }
+  const reflex = cross !== 0 && orient.sign() !== 0 && cross !== orient.sign();
+  return reflex ? { v: Rational.of(360).sub(raw.v), exact: raw.exact } : raw;
+}
+
+/**
+ * Окружность (построение на плоскости): центр-адрес и рациональный радиус.
+ * π не вычисляется — остаётся именем: площадь и длина подписываются
+ * ТОЧНО в виде k·π («S = 4π», «C = 4π»), как радианы на «Окружности».
+ */
+export interface CircleObject extends ObjectBase {
+  kind: 'circle';
+  readonly label: string; // О1, О2…
+  cx: Rational;
+  cy: Rational;
+  r: Rational; // > 0
+  showRadius: boolean;
+  showArea: boolean;
+  showCircumference: boolean;
+}
+
+/** Запись k·π точной дробью с π-именем: «4π», «π/2», «9π/4», «0». */
+export function piText(k: Rational): string {
+  if (k.isZero()) return '0';
+  const neg = k.num < 0n;
+  const a = neg ? -k.num : k.num;
+  const numTxt = a === 1n ? 'π' : `${a}π`;
+  return `${neg ? '−' : ''}${numTxt}${k.den === 1n ? '' : `/${k.den}`}`;
+}
+
+/** Площадь круга: π·r² — точная запись с π-именем. */
+export function circleAreaText(c: CircleObject): string {
+  return piText(c.r.mul(c.r));
+}
+
+/** Длина окружности: 2π·r — точная запись с π-именем. */
+export function circleCircumferenceText(c: CircleObject): string {
+  return piText(c.r.mul(Rational.of(2)));
+}
+
+/** Знак векторного произведения (b−a)×(c−a): поворот в точных дробях. */
+function crossSign(a: PolyVertex, b: PolyVertex, c: PolyVertex): number {
+  return b.x.sub(a.x).mul(c.y.sub(a.y)).sub(b.y.sub(a.y).mul(c.x.sub(a.x))).sign();
+}
+
+/** Точка p внутри прямоугольника-обёртки отрезка ab (для коллинеарных). */
+function inSegBox(p: PolyVertex, a: PolyVertex, b: PolyVertex): boolean {
+  const le = (u: Rational, w: Rational) => u.sub(w).sign() <= 0;
+  const [x0, x1] = le(a.x, b.x) ? [a.x, b.x] : [b.x, a.x];
+  const [y0, y1] = le(a.y, b.y) ? [a.y, b.y] : [b.y, a.y];
+  return le(x0, p.x) && le(p.x, x1) && le(y0, p.y) && le(p.y, y1);
+}
+
+/** Пересекаются ли отрезки ab и cd (включая касание и налегание) — точно. */
+function segsCross(a: PolyVertex, b: PolyVertex, c: PolyVertex, d: PolyVertex): boolean {
+  const d1 = crossSign(c, d, a);
+  const d2 = crossSign(c, d, b);
+  const d3 = crossSign(a, b, c);
+  const d4 = crossSign(a, b, d);
+  if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+  if (d1 === 0 && inSegBox(a, c, d)) return true;
+  if (d2 === 0 && inSegBox(b, c, d)) return true;
+  if (d3 === 0 && inSegBox(c, a, b)) return true;
+  if (d4 === 0 && inSegBox(d, a, b)) return true;
+  return false;
+}
+
+/**
+ * Простой ли многоугольник: стороны не пересекаются и не налегают.
+ * У непростого площадь по шнуровке ВРЁТ — подпись честно отказывается.
+ * Слипшиеся соседние вершины (сторона нулевой длины) просто выпадают.
+ */
+export function polygonIsSimple(p: PolygonObject): boolean {
+  // без слипшихся соседей: нулевые стороны не участвуют в проверке
+  const v: PolyVertex[] = [];
+  for (const cur of p.vertices) {
+    const prev = v[v.length - 1];
+    if (!prev || !prev.x.equals(cur.x) || !prev.y.equals(cur.y)) v.push(cur);
+  }
+  while (v.length > 1 && v[0]!.x.equals(v[v.length - 1]!.x) && v[0]!.y.equals(v[v.length - 1]!.y)) v.pop();
+  const n = v.length;
+  if (n < 3) return true; // выродился в точку/отрезок — площадь 0 честна
+
+  for (let i = 0; i < n; i++) {
+    const a = v[i]!;
+    const b = v[(i + 1) % n]!;
+    for (let j = i + 1; j < n; j++) {
+      const c = v[j]!;
+      const d = v[(j + 1) % n]!;
+      const adjacent = j === i + 1 || (i === 0 && j === n - 1);
+      if (adjacent) {
+        // соседние стороны делят вершину; налегание (шип 180°) — не простой
+        const shared = j === i + 1 ? b : a;
+        const farAB = j === i + 1 ? a : b;
+        const farCD = j === i + 1 ? d : c;
+        if (crossSign(farAB, shared, farCD) === 0 &&
+            (inSegBox(farCD, farAB, shared) || inSegBox(farAB, shared, farCD))) return false;
+        continue;
+      }
+      if (segsCross(a, b, c, d)) return false;
+    }
+  }
+  return true;
+}
+
+export type MathObject = NumberObject | TapeObject | UnknownObject | RectObject | EquationObject | PointObject | VectorObject | CuboidObject | AngleObject | FunctionObject | PolygonObject | CircleObject;
 
 /** Значение левой чаши: секрет, прогнанный через стопку наклеек. */
 export function unknownValue(u: UnknownObject): Rational {

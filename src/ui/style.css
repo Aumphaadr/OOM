@@ -108,6 +108,23 @@ body {
 .fn-row .fn-mini:hover { color: var(--text-primary); border-color: var(--accent-border); }
 
 /* Кастомный выбор цвета: поповер со свотчами (одинаков во всех браузерах) */
+/* ПКМ-карточка личных подписей фигуры на «Плоскости» */
+.fig-card {
+  position: fixed;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.fig-card-title { color: var(--accent); font-weight: 600; font-size: 0.85rem; }
+.fig-card { min-width: 190px; }
+.fig-card input.bad { border-color: var(--danger-border); box-shadow: 0 0 0 3px rgba(220, 100, 80, 0.2); }
+
 .color-pop {
   position: fixed;
   z-index: 120;
@@ -239,6 +256,15 @@ button[data-icon] .icon { display: block; margin: 0 auto; }
 }
 
 .panel h3 { color: var(--accent); font-size: 1rem; margin-bottom: 10px; font-weight: 600; }
+.panel h3 .panel-caret {
+  float: right;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0 2px;
+  user-select: none;
+}
+.panel h3:hover .panel-caret { color: var(--accent); }
 
 .tool-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 

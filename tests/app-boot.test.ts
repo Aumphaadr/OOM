@@ -75,7 +75,7 @@ describe('приложение', () => {
     document.getElementById('btn-reader')!.click();
     await new Promise((r) => setTimeout(r, 0));
     const links = [...document.querySelectorAll<HTMLButtonElement>('.chapter-link')];
-    expect(links.length).toBe(44);
+    expect(links.length).toBe(45);
 
     links[0]!.click();
     await new Promise((r) => setTimeout(r, 0));

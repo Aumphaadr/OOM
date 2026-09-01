@@ -107,7 +107,8 @@ export class Reader {
         (e.kind === 'tool-applied' || e.kind === 'scales-step' || e.kind === 'equation-step' ||
           e.kind === 'tape-changed' || e.kind === 'rect-changed' || e.kind === 'var-set' ||
           e.kind === 'point-moved' || e.kind === 'vector-changed' || e.kind === 'cuboid-changed' ||
-          e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed') &&
+          e.kind === 'transfer' || e.kind === 'angle-set' || e.kind === 'function-changed' ||
+          e.kind === 'polygon-changed' || e.kind === 'circle-changed') &&
         !((e.kind === 'scales-step' || e.kind === 'equation-step') && e.neutral); // нейтральный удар — не ход
 
       if (this.phase === 'experiment') {

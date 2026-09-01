@@ -6,6 +6,7 @@ import { RectObject, rectPerimeter, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
 import { icon } from '../ui/icons';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
+import { loadSettings } from '../ui/settings';
 
 const PX = 40; // пикселей на клетку (единичный квадрат)
 const EDGE_HIT = 8;
@@ -23,6 +24,7 @@ type Gesture =
   | { type: 'corner-br'; obj: RectObject; fixTop: number }
   | { type: 'corner-bl'; obj: RectObject; fixRight: number; fixTop: number }
   | { type: 'body'; offsets: Map<string, Pos>; startX: number; startY: number; moved: boolean;
+      pendingCut?: { action: 'cut' | 'merge'; axis: 'x' | 'y'; pos: Rational };
       rectId: string; wasSelected: boolean }
   | { type: 'band'; x0: number; y0: number; x1: number; y1: number; additive: boolean };
 
@@ -35,7 +37,7 @@ type Gesture =
 export class AreaScene implements Scene {
   readonly id = 'area';
   readonly title = 'Площади';
-  readonly sidebar: { tools?: boolean; objects?: boolean } = { objects: false };
+  readonly sidebar: { tools?: boolean; objects?: boolean } = { tools: false, objects: false };
 
   private ctx: SceneContext | null = null;
   /** Пан полотна (СКМ, как в GeoGebra): чистая презентация, мир бесконечен. */
@@ -151,16 +153,24 @@ export class AreaScene implements Scene {
         Клик по линии сетки внутри фигуры — рез, по резу — склейка.
         Площади кусков подписаны: рез превращает произведение в сумму.</p>
     `;
+    // дефолтные подписи свежей фигуры — из глобальных настроек (⚙);
+    // дальше флаги личные, правятся галками панели по выделенной
+    const spawnWithDefaults = (w: Rational, h: Rational): void => {
+      const r = this.ctx!.session.spawnRect(w, h);
+      const st = loadSettings();
+      r.showArea = st.showAreaDefault;
+      r.showPerimeter = st.showPerimeterDefault;
+    };
     root.querySelector<HTMLButtonElement>('#spawn-seg')!.addEventListener('click', () => {
       if (!this.ctx || !this.ctx.restrictions.construct) return;
       const len = Rational.parse(root.querySelector<HTMLInputElement>('#seg-len')!.value);
-      if (len && len.sign() > 0) this.ctx.session.spawnRect(len, Rational.of(0));
+      if (len && len.sign() > 0) spawnWithDefaults(len, Rational.of(0));
     });
     root.querySelector<HTMLButtonElement>('#spawn-rect')!.addEventListener('click', () => {
       if (!this.ctx || !this.ctx.restrictions.construct) return;
       const w = Rational.parse(root.querySelector<HTMLInputElement>('#rect-w')!.value);
       const h = Rational.parse(root.querySelector<HTMLInputElement>('#rect-h')!.value);
-      if (w && h && w.sign() > 0 && h.sign() >= 0) this.ctx.session.spawnRect(w, h);
+      if (w && h && w.sign() > 0 && h.sign() >= 0) spawnWithDefaults(w, h);
     });
     return root;
   }
@@ -419,14 +429,13 @@ export class AreaScene implements Scene {
         };
         return;
       }
-      if (hit?.part === 'cut') {
-        if (this.ctx.session.mergeRect(r.id, hit.axis, hit.pos)) this.labels.spawn('∪', p.x, p.y - 24);
-        return;
-      }
-      if (hit?.part === 'seam') {
-        if (this.ctx.session.cutRect(r.id, hit.axis, hit.pos)) this.labels.spawn('✂', p.x, p.y - 24);
-        return;
-      }
+      // Рез/склейка откладываются до ОТПУСКАНИЯ без движения: клик у шва
+      // больше не мешает перетаскиванию фигуры (как у лент)
+      const pendingCut = hit?.part === 'cut'
+        ? { action: 'merge' as const, axis: hit.axis, pos: hit.pos }
+        : hit?.part === 'seam'
+          ? { action: 'cut' as const, axis: hit.axis, pos: hit.pos }
+          : undefined;
       // Тело: выделение и групповое перетаскивание
       if (p.shift) {
         if (this.selection.has(r.id)) this.selection.delete(r.id);
@@ -444,7 +453,10 @@ export class AreaScene implements Scene {
         const sp = obj?.kind === 'rect' ? obj.scenePos.get(this.id) : undefined;
         if (sp) offsets.set(id, { x: p.x - sp.x, y: p.y - sp.y });
       }
-      this.gesture = { type: 'body', offsets, startX: p.x, startY: p.y, moved: false, rectId: r.id, wasSelected };
+      this.gesture = {
+        type: 'body', offsets, startX: p.x, startY: p.y, moved: false,
+        rectId: r.id, wasSelected, pendingCut,
+      };
       return;
     }
 
@@ -550,6 +562,13 @@ export class AreaScene implements Scene {
       if ('fixRight' in g) pos.x = g.fixRight - g.obj.w.toNumber() * PX;
       if ('fixTop' in g) pos.y = g.fixTop + g.obj.h.toNumber() * PX;
       g.obj.scenePos.set(this.id, pos);
+      return;
+    }
+    if (g.type === 'body' && !g.moved && g.pendingCut) {
+      const done = g.pendingCut.action === 'cut'
+        ? this.ctx.session.cutRect(g.rectId, g.pendingCut.axis, g.pendingCut.pos)
+        : this.ctx.session.mergeRect(g.rectId, g.pendingCut.axis, g.pendingCut.pos);
+      if (done) this.labels.spawn(g.pendingCut.action === 'cut' ? '✂' : '∪', this.pointer.x, this.pointer.y - 24);
       return;
     }
     if (g.type === 'body' && !g.moved && g.wasSelected) {
