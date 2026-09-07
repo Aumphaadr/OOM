@@ -89,6 +89,8 @@ export class Reader {
   private readonly aside = document.getElementById('reader')!;
   private readonly body = document.getElementById('reader-body')!;
   private readonly panel = document.getElementById('task-panel')!;
+  /** Подгонка верха канваса под фактическую высоту плашки задания. */
+  private syncStageTop: (() => void) | null = null;
 
   constructor(private readonly deps: ReaderDeps) {
     document.getElementById('btn-reader')!.addEventListener('click', () => this.toggle());
@@ -100,6 +102,18 @@ export class Reader {
       if (this.active) void this.start(this.active);
     });
     document.getElementById('task-close')!.addEventListener('click', () => this.closeExercise());
+
+    // Плашка задания не перекрывает сцену, а ОТЖИМАЕТ её: канвас начинается
+    // ниже плашки, и объекты никогда не прячутся под текстом или вариантами.
+    // ResizeObserver следит за высотой (чекпоинт разворачивает варианты).
+    const stage = document.getElementById('stage');
+    if (stage) {
+      const syncStageTop = (): void => {
+        stage.style.top = this.panel.hidden ? '' : `${this.panel.offsetTop + this.panel.offsetHeight + 10}px`;
+      };
+      new ResizeObserver(syncStageTop).observe(this.panel);
+      this.syncStageTop = syncStageTop;
+    }
 
     deps.session.on((e) => {
       if (!this.active || this.loading || this.phase === 'done' || this.phase === 'checkpoint') return;
@@ -287,6 +301,7 @@ export class Reader {
     this.panel.hidden = false;
     document.getElementById('task-hint-text')!.hidden = true;
     this.renderPanel();
+    this.syncStageTop?.();
     this.deps.say(`🎯 Задание: ${spec.task}`);
     return Promise.resolve();
   }
@@ -294,6 +309,7 @@ export class Reader {
   private closeExercise(): void {
     this.active = null;
     this.panel.hidden = true;
+    this.syncStageTop?.();
     this.deps.setConstruct(true); // свободная доска снова открыта
   }
 
