@@ -6,7 +6,7 @@ import { evalConstFormula } from '../core/formula';
 import { CanvasHost } from '../render/canvasHost';
 import { Scene, HandState, Restrictions, SceneContext } from '../scenes/scene';
 import { Reader } from './reader';
-import { icon } from './icons';
+import { icon } from '../icons';
 import { diagnosisSummary, diagnosisReport, clearDiagnoses } from './diagnoses';
 import { Settings, loadSettings, saveSettings } from './settings';
 
@@ -202,7 +202,7 @@ export class Shell {
       if (this.restrictions.construct) {
         const del = document.createElement('span');
         del.className = 'chip-del';
-        del.innerHTML = icon('close', 9);
+        del.innerHTML = icon('x', 9);
         del.title = 'Выбросить инструмент';
         del.addEventListener('click', (ev) => {
           ev.stopPropagation();
@@ -344,7 +344,7 @@ export class Shell {
       if (!this.session.undo()) this.say('Отматывать больше нечего.');
     });
 
-    // История — по запросу: дропдаун у кнопки ↺, закрывается кликом мимо
+    // История — по запросу: дропдаун у кнопки «История», закрывается кликом мимо
     const historyBtn = document.getElementById('btn-history')!;
     const dropdown = document.getElementById('history-dropdown')!;
     historyBtn.addEventListener('click', (ev) => {
@@ -451,7 +451,7 @@ export class Shell {
     h3.title = 'Свернуть/развернуть панель';
     const caret = document.createElement('span');
     caret.className = 'panel-caret';
-    caret.textContent = '▾';
+    caret.innerHTML = icon('chevron-down', 16);
     h3.appendChild(caret);
     h3.addEventListener('click', () => {
       this.setPanelCollapsed(section, section.dataset.collapsed !== '1');
@@ -468,7 +468,7 @@ export class Shell {
       if (child !== h3) (child as HTMLElement).hidden = on;
     }
     const caret = h3.querySelector('.panel-caret');
-    if (caret) caret.textContent = on ? '▸' : '▾';
+    if (caret) caret.innerHTML = icon(on ? 'chevron-right' : 'chevron-down', 16);
   }
 
   // ---------- уроки и сохранения ----------
@@ -533,7 +533,7 @@ export class Shell {
       setConstruct: (on) => this.setConstruct(on),
     });
 
-    // 📤 текущая доска → заготовка упражнения в буфер обмена
+    // текущая доска → заготовка упражнения в буфер обмена
     document.getElementById('btn-export-ex')!.addEventListener('click', () => {
       const skeleton = {
         id: 'new-exercise',

@@ -2,7 +2,7 @@ import { Session } from '../core/session';
 import { BoardJson, importBoardData } from '../core/serialize';
 import { GoalSpec, checkGoal } from '../core/goal';
 import { Rational } from '../core/rational';
-import { icon } from './icons';
+import { icon, applyIcons } from '../icons';
 import { recordDiagnosis } from './diagnoses';
 
 /** Вариант вывода в чекпоинте (методика 999, docs/design-checkpoints.md). */
@@ -261,6 +261,7 @@ export class Reader {
       this.body.appendChild(back);
       const content = document.createElement('div');
       content.innerHTML = html;
+      applyIcons(content);
       this.body.appendChild(content);
       this.body.scrollTop = 0;
 
@@ -375,7 +376,9 @@ export class Reader {
       aimEl.hidden = true;
     } else {
       aimEl.hidden = false;
-      aimEl.textContent = this.aim === 'over' ? '↑ перелёт' : '↓ недолёт';
+      aimEl.innerHTML = this.aim === 'over'
+        ? `${icon('arrow-up', 14)} перелёт`
+        : `${icon('arrow-down', 14)} недолёт`;
     }
     this.panel.classList.toggle('done', done);
   }

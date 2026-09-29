@@ -107,7 +107,7 @@ export class BoxesScene implements Scene {
       }
       if (e.kind === 'tool-rejected') {
         const pos = this.posOf(e.objectId);
-        if (pos) this.labels.spawn('✕', pos.x + BOX_W / 2, pos.y);
+        if (pos) this.labels.spawn('⛔', pos.x + BOX_W / 2, pos.y); // отказ — как во всех сценах
       }
       if (e.kind === 'object-removed') {
         this.shakes.delete(e.objectId);
@@ -438,7 +438,7 @@ export class BoxesScene implements Scene {
     const head = hand ? hammerHeadPoint(this.pointer.x, this.pointer.y) : null;
     const targeted = head ? (this.boxAt(head.x, head.y) ?? this.boxAt(this.pointer.x, this.pointer.y)) : null;
 
-    // шлейф истории — глобальная настройка (⚙), по умолчанию выключен
+    // шлейф истории — глобальная настройка, по умолчанию выключен
     const trailOn = loadSettings().showTrail;
     for (const obj of this.ctx.session.objects.values()) {
       if (obj.kind !== 'number') continue;

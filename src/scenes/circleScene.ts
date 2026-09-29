@@ -4,7 +4,7 @@ import { drawHammer } from '../render/hammer';
 import { FlyingLabels, wobbleAngle } from '../render/motion';
 import { AngleObject, sinDeg, cosDeg, degMod360, radText, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 
 const KNOB_R = 10;
 const DRAG_THRESHOLD = 3;

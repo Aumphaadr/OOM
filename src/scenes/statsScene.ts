@@ -4,7 +4,7 @@ import { drawHammer } from '../render/hammer';
 import { FlyingLabels, wobbleAngle } from '../render/motion';
 import { NumberObject, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 
 const SLOT_W = 72;
 const BAR_W = 46;

@@ -11,7 +11,7 @@ import { clipFromObject, spawnFromClip } from '../core/clipboard';
 import { loadSettings } from '../ui/settings';
 import { parseFormula, evalNum, FormulaNode } from '../core/formula';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 
 const POINT_R = 7;
 const HIT_R = 12;
@@ -25,6 +25,10 @@ const POLY_VERT_R = 10;  // захват вершины выделенной ф�
 const POLY_CLOSE_R = 14; // клик у первой вершины замыкает постройку
 const CIRC_CENTER_R = 10; // захват центра окружности
 const CIRC_EDGE_R = 8;    // захват обода (радиус тянется за любую его точку)
+/** Подписи кнопок постройки: в покое — что строим, в режиме постройки — отмена. */
+const BUILD_POLY = `<span class="ic">${icon('pentagon', 14)}</span>Полигон`;
+const BUILD_CIRCLE = `<span class="ic">${icon('circle-dot', 14)}</span>Круг`;
+const BUILD_CANCEL = `<span class="ic">${icon('x', 14)}</span>Отмена`;
 /** Свотчи выбора цвета функции: фиксированная палитра, одинаковая во всех браузерах. */
 const SWATCHES = [
   '#4fc3f7', '#ff9e64', '#9ece6a', '#f7768e', '#bb9af7',
@@ -296,12 +300,12 @@ export class PlaneScene implements Scene {
         <button id="pt-spawn" class="btn primary" title="Поставить точку по адресу (x; y)"><span class="ic">${icon('plus', 12)}</span>Точка</button>
       </div>
       <div class="series-row btns-even">
-        <button id="pt-flip-x" class="btn" title="Зеркало: отразить выделенные точки от оси X">↕ от X</button>
-        <button id="pt-flip-y" class="btn" title="Зеркало: отразить выделенные точки от оси Y">↔ от Y</button>
+        <button id="pt-flip-x" class="btn" title="Зеркало: отразить выделенные точки и фигуры от оси X"><span class="ic">${icon('flip-vertical', 14)}</span>от X</button>
+        <button id="pt-flip-y" class="btn" title="Зеркало: отразить выделенные точки и фигуры от оси Y"><span class="ic">${icon('flip-horizontal', 14)}</span>от Y</button>
       </div>
       <div class="series-row btns-even">
-        <button id="pt-rot-ccw" class="btn" title="Повернуть выделенные точки на 90° против часовой">⟲ 90°</button>
-        <button id="pt-rot-cw" class="btn" title="Повернуть выделенные точки на 90° по часовой">⟳ 90°</button>
+        <button id="pt-rot-ccw" class="btn" title="Повернуть выделенные точки и фигуры на 90° против часовой"><span class="ic">${icon('rotate-ccw', 14)}</span>90°</button>
+        <button id="pt-rot-cw" class="btn" title="Повернуть выделенные точки и фигуры на 90° по часовой"><span class="ic">${icon('rotate-cw', 14)}</span>90°</button>
       </div>
       <p class="hint">Адрес — пара чисел В СТРОГОМ ПОРЯДКЕ: вбок, потом вверх.
         Двойной клик по плоскости тоже ставит точку. Перенос — со снапом
@@ -317,7 +321,7 @@ export class PlaneScene implements Scene {
         <button id="vc-spawn" class="btn primary" title="Создать вектор с командой (dx; dy)"><span class="ic">${icon('plus', 12)}</span>Вектор</button>
       </div>
       <div class="series-row">
-        <button id="vc-sum" class="btn" title="Сложить ровно ДВА выделенных вектора: новая стрелка = обе команды подряд (хвост к носу)">➕ Сумма выделенных</button>
+        <button id="vc-sum" class="btn" title="Сложить ровно ДВА выделенных вектора: новая стрелка = обе команды подряд (хвост к носу)"><span class="ic">${icon('plus', 12)}</span>Сумма выделенных</button>
       </div>
       <p class="hint">Вектор — команда «сколько вбок и сколько вверх» БЕЗ места:
         тащи её за древко куда угодно — команда не меняется. Голова меняет
@@ -328,8 +332,8 @@ export class PlaneScene implements Scene {
       <section class="panel">
       <h3>Фигуры</h3>
       <div class="series-row btns-even">
-        <button id="fg-build" class="btn primary" title="Построить полигон: клики по плоскости ставят вершины (со снапом к сетке), клик по первой вершине замыкает; Esc отменяет">⬠ Полигон</button>
-        <button id="fg-circle" class="btn primary" title="Построить круг: первый клик — центр, второй — радиус (по шагу сетки); Esc отменяет">⊙ Круг</button>
+        <button id="fg-build" class="btn primary" title="Построить полигон: клики по плоскости ставят вершины (со снапом к сетке), клик по первой вершине замыкает; Esc отменяет">${BUILD_POLY}</button>
+        <button id="fg-circle" class="btn primary" title="Построить круг: первый клик — центр, второй — радиус (по шагу сетки); Esc отменяет">${BUILD_CIRCLE}</button>
       </div>
       <p class="hint">Полигон — построение: вершина за вершиной, замкнул —
         фигура готова. У круга два клика: центр и радиус. Тащи фигуру
@@ -506,8 +510,8 @@ export class PlaneScene implements Scene {
       row.innerHTML = `
         <button class="fn-color" title="Цвет следа ${f.label}" style="background:${f.color}">y=</button>
         <input class="fn-formula" spellcheck="false" placeholder="например: x^2 - 2(x+5) + 10" />
-        <button class="fn-mini fn-anim" title="Анимация порождения следа">▶</button>
-        <button class="fn-mini fn-del" title="Стереть функцию" ${construct ? '' : 'hidden'}>✕</button>
+        <button class="fn-mini fn-anim" title="Анимация порождения следа">${icon('play', 13)}</button>
+        <button class="fn-mini fn-del" title="Стереть функцию" ${construct ? '' : 'hidden'}>${icon('x', 13)}</button>
       `;
       const input = row.querySelector<HTMLInputElement>('.fn-formula')!;
       input.value = formula;
@@ -679,7 +683,7 @@ export class PlaneScene implements Scene {
   private setBuild(v: { x: Rational; y: Rational }[] | null): void {
     this.buildVerts = v;
     if (this.buildBtn) {
-      this.buildBtn.textContent = v ? '✕ Отмена' : '⬠ Полигон';
+      this.buildBtn.innerHTML = v ? BUILD_CANCEL : BUILD_POLY;
       this.buildBtn.classList.toggle('primary', !v);
     }
   }
@@ -687,7 +691,7 @@ export class PlaneScene implements Scene {
   private setBuildCirc(v: { center: { x: Rational; y: Rational } | null } | null): void {
     this.buildCirc = v;
     if (this.buildCircBtn) {
-      this.buildCircBtn.textContent = v ? '✕ Отмена' : '⊙ Круг';
+      this.buildCircBtn.innerHTML = v ? BUILD_CANCEL : BUILD_CIRCLE;
       this.buildCircBtn.classList.toggle('primary', !v);
     }
   }
@@ -1492,7 +1496,7 @@ export class PlaneScene implements Scene {
   private edgeCursor(c: CircleObject, sx: number, sy: number): string {
     const s = this.toScreen(c.cx, c.cy);
     const ang = Math.atan2(-(sy - s.y), sx - s.x); // экранный Y вниз
-    const oct = Math.round(ang / (Math.PI / 4)) & 3; // 0 →, 1 ↗, 2 ↑, 3 ↖
+    const oct = Math.round(ang / (Math.PI / 4)) & 3; // 0 — вбок, 1 — вправо-вверх, 2 — вверх, 3 — влево-вверх
     return ['ew-resize', 'nesw-resize', 'ns-resize', 'nwse-resize'][oct]!;
   }
 

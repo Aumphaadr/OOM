@@ -2,14 +2,28 @@
   "name": "oom-app",
   "private": true,
   "version": "0.1.0",
+  "description": "ООМ — Объектно-ориентированная математика: интерактивная доска и учебник лечебного курса школьной математики",
   "license": "MIT",
+  "author": "Nathaniel Larsson",
+  "homepage": "https://aumphaadr.github.io/OOM/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aumphaadr/OOM.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aumphaadr/OOM/issues"
+  },
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "icons:sync": "node tools/sync-icons.mjs"
   },
   "devDependencies": {
     "happy-dom": "^20.11.2",

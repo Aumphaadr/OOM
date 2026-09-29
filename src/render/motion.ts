@@ -2,6 +2,7 @@
  * Анимационные примитивы. Все параметры — из idea/style-notes.md §3,
  * пересчитанные из «прогресс за кадр» в миллисекунды.
  */
+import { IconName, drawIcon, fillRichText } from '../icons';
 
 export const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
@@ -47,7 +48,10 @@ export function wobbleAngle(now: number): number {
 
 /** Разлетающиеся подписи операций — золотые «субтитры удара». */
 export interface FlyingLabel {
+  /** Подпись; метки-пиктограммы в ней (⛔, ✂…) рисуются значками набора. */
   text: string;
+  /** Значок без подписи — там, где у символа есть и другой смысл (∪ склейки). */
+  icon?: IconName;
   x: number;
   y: number;
   vx: number; // px/с
@@ -58,9 +62,9 @@ export interface FlyingLabel {
 export class FlyingLabels {
   private labels: FlyingLabel[] = [];
 
-  spawn(text: string, x: number, y: number): void {
+  spawn(text: string, x: number, y: number, icon?: IconName): void {
     this.labels.push({
-      text, x, y,
+      text, icon, x, y,
       vx: (Math.random() - 0.5) * 180,
       vy: -180 - Math.random() * 300,
       life: 1,
@@ -86,11 +90,13 @@ export class FlyingLabels {
     g.textBaseline = 'middle';
     for (const f of this.labels) {
       g.globalAlpha = Math.max(f.life, 0);
-      g.font = `bold ${Math.round(20 * (0.8 + f.life * 0.2))}px Inter, sans-serif`;
+      const size = Math.round(20 * (0.8 + f.life * 0.2));
+      g.font = `bold ${size}px Inter, sans-serif`;
       g.fillStyle = gold;
       g.shadowColor = 'rgba(255, 215, 0, 0.5)';
       g.shadowBlur = 10;
-      g.fillText(f.text, f.x, f.y);
+      if (f.icon) drawIcon(g, f.icon, f.x, f.y, size * 1.2, gold);
+      else fillRichText(g, f.text, f.x, f.y, size);
     }
     g.restore();
   }

@@ -69,6 +69,13 @@ describe('приложение', () => {
     document.getElementById('btn-undo')!.click();
     document.getElementById('btn-history')!.click();
     expect(document.getElementById('history-dropdown')!.hidden).toBe(false);
+
+    // субтитр с меткой («💾 Доска сохранена») показывает значок набора, а не эмодзи
+    document.getElementById('btn-save')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const last = document.querySelector('#subtitles li:last-child')!;
+    expect(last.querySelector('.pic')?.getAttribute('data-pic')).toBe('save');
+    expect(last.textContent).not.toContain('💾');
   });
 
   it('читалка: оглавление из манифеста, глава с кнопками упражнений', async () => {

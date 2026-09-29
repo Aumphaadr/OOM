@@ -4,7 +4,7 @@ import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
 import { TapeObject, tapePieceLabels, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
 
 const LEFT = 74; // левая кромка лент по умолчанию (новые встают стопкой)
@@ -149,7 +149,7 @@ export class TapesScene implements Scene {
     this.popup.hidden = true;
     this.popup.innerHTML = `
       <div class="task-head"><b id="tp-title">Лента</b>
-        <span class="task-actions"><button id="tp-close" class="btn ghost" title="Закрыть">${icon('close', 12)}</button></span>
+        <span class="task-actions"><button id="tp-close" class="btn ghost" title="Закрыть">${icon('x', 12)}</button></span>
       </div>
       <div class="series-row">
         <label class="field">режим /n<input id="tp-mode" type="number" min="1" max="100" /></label>
@@ -414,7 +414,7 @@ export class TapesScene implements Scene {
     // Клик: по резу — склейка, по шву — рез, мимо — карточка настроек
     const cut = this.cutNear(d.tape, p.x);
     if (cut !== null) {
-      if (this.ctx.session.mergeTape(d.tape.id, cut)) this.labels.spawn('∪', p.x, p.y - 24);
+      if (this.ctx.session.mergeTape(d.tape.id, cut)) this.labels.spawn('', p.x, p.y - 24, 'merge');
       return;
     }
     const seam = this.seamNear(d.tape, p.x);

@@ -1,4 +1,6 @@
 node_modules/
 dist/
 *.local
+*.log
+.DS_Store
 BACKLOG.md
