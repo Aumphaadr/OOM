@@ -5,7 +5,7 @@ import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
 import { NumberObject, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
 
 const CHIP_R = 18;
@@ -196,7 +196,7 @@ export class NumberLineScene implements Scene {
     this.card.hidden = true;
     this.card.innerHTML = `
       <div class="task-head"><b>Прямая</b>
-        <span class="task-actions"><button id="nl-close" class="btn ghost" title="Закрыть">${icon('close', 12)}</button></span>
+        <span class="task-actions"><button id="nl-close" class="btn ghost" title="Закрыть">${icon('x', 12)}</button></span>
       </div>
       <div class="series-row">
         <label class="field">формат<select id="nl-format">

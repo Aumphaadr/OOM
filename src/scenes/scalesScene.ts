@@ -4,7 +4,7 @@ import { drawHammer } from '../render/hammer';
 import { FlyingLabels, ShakeAnim, SwingAnim, wobbleAngle } from '../render/motion';
 import { UnknownObject, EquationObject, exprFor, toolLabel, visibleLabel, linFormText, linFormEval, parseLinForm, unknownValue } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon, drawIcon, fillRichText } from '../icons';
 
 const BOX_W = 116;
 const BOX_H = 88;
@@ -87,7 +87,7 @@ export class ScalesScene implements Scene {
         <label class="field">буква<input id="eq-name" value="x" maxlength="2" /></label>
         <label class="field">секрет (значение)<input id="eq-secret" value="" placeholder="?" autocomplete="off" /></label>
       </div>
-      <button id="eq-create" class="btn primary"><span class="ic">${icon('scales', 14)}</span>Создать уравнение</button>
+      <button id="eq-create" class="btn primary"><span class="ic">${icon('scale', 14)}</span>Создать уравнение</button>
       <p class="hint">Коробка запирает секрет; правая чаша уравновешивает его.
         Удар приходится по ТОЙ чаше, по которой кликнул, — равновесие держишь ты:
         тот же молоток по второй чаше, иначе весы перекосит. Обратный инструмент
@@ -102,7 +102,7 @@ export class ScalesScene implements Scene {
         <label class="field">буква<input id="eq2-name" value="x" maxlength="2" /></label>
         <label class="field">секрет (значение)<input id="eq2-secret" placeholder="?" autocomplete="off" /></label>
       </div>
-      <button id="eq2-create" class="btn primary"><span class="ic">${icon('scales', 14)}</span>Уравнение-2</button>
+      <button id="eq2-create" class="btn primary"><span class="ic">${icon('scale', 14)}</span>Уравнение-2</button>
       <p class="hint">Чаши — формы вида k·x + b. Молотки ±N, ×N, ÷N и ±x бьют по
         чаше под кликом; равновесие держишь ты — одинаковый удар по обеим.
         Цель — форма x = c при ровном коромысле.</p>
@@ -255,7 +255,7 @@ export class ScalesScene implements Scene {
         ? `${state} — верно для любого ${eq.name}: уравнение сгорело`
         : state;
     const base = Math.max(this.panCenter(-1).y, this.panCenter(1).y);
-    g.fillText(caption, cx, base + BOX_H / 2 + 74);
+    fillRichText(g, caption, cx, base + BOX_H / 2 + 74, 18);
   }
 
   /** Чаша-выражение весов v2: коробка с текстом формы. */
@@ -375,9 +375,7 @@ export class ScalesScene implements Scene {
     // Замок и содержимое
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = '16px Inter, sans-serif';
-    g.fillStyle = theme.textSecondary;
-    g.fillText(eq.revealed ? '🔓' : '🔒', x + 18, y + 14);
+    drawIcon(g, eq.revealed ? 'lock-open' : 'lock', x + 18, y + 14, 16, theme.textSecondary);
     g.fillStyle = theme.textPrimary;
     g.font = 'bold 30px Inter, sans-serif';
     g.fillText(eq.revealed ? eq.secret.toDisplay() : eq.name, cx, cy + 4);

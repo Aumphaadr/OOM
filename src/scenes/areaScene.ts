@@ -4,7 +4,7 @@ import { drawHammer, hammerHeadPoint } from '../render/hammer';
 import { FlyingLabels, SwingAnim, wobbleAngle } from '../render/motion';
 import { RectObject, rectPerimeter, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
 import { loadSettings } from '../ui/settings';
 
@@ -153,7 +153,7 @@ export class AreaScene implements Scene {
         Клик по линии сетки внутри фигуры — рез, по резу — склейка.
         Площади кусков подписаны: рез превращает произведение в сумму.</p>
     `;
-    // дефолтные подписи свежей фигуры — из глобальных настроек (⚙);
+    // дефолтные подписи свежей фигуры — из глобальных настроек;
     // дальше флаги личные, правятся галками панели по выделенной
     const spawnWithDefaults = (w: Rational, h: Rational): void => {
       const r = this.ctx!.session.spawnRect(w, h);
@@ -183,13 +183,13 @@ export class AreaScene implements Scene {
     this.card.hidden = true;
     this.card.innerHTML = `
       <div class="task-head"><b id="ar-title">Фигура</b>
-        <span class="task-actions"><button id="ar-close" class="btn ghost" title="Закрыть">${icon('close', 12)}</button></span>
+        <span class="task-actions"><button id="ar-close" class="btn ghost" title="Закрыть">${icon('x', 12)}</button></span>
       </div>
       <label class="field tp-check"><input type="checkbox" id="ar-w" /> показывать ширину</label>
       <label class="field tp-check"><input type="checkbox" id="ar-h" /> показывать высоту</label>
       <label class="field tp-check"><input type="checkbox" id="ar-area" /> показывать площадь</label>
       <label class="field tp-check"><input type="checkbox" id="ar-perim" /> показывать периметр</label>
-      <button id="ar-rotate" class="btn primary"><span class="ic">${icon('refresh', 13)}</span>Повернуть на 90°</button>
+      <button id="ar-rotate" class="btn primary"><span class="ic">${icon('rotate-cw', 13)}</span>Повернуть на 90°</button>
       <button id="ar-del" class="btn ghost"><span class="ic">${icon('trash', 13)}</span>Удалить фигуру</button>
     `;
     host.appendChild(this.card);
@@ -568,7 +568,10 @@ export class AreaScene implements Scene {
       const done = g.pendingCut.action === 'cut'
         ? this.ctx.session.cutRect(g.rectId, g.pendingCut.axis, g.pendingCut.pos)
         : this.ctx.session.mergeRect(g.rectId, g.pendingCut.axis, g.pendingCut.pos);
-      if (done) this.labels.spawn(g.pendingCut.action === 'cut' ? '✂' : '∪', this.pointer.x, this.pointer.y - 24);
+      if (done) {
+        if (g.pendingCut.action === 'cut') this.labels.spawn('✂', this.pointer.x, this.pointer.y - 24);
+        else this.labels.spawn('', this.pointer.x, this.pointer.y - 24, 'merge');
+      }
       return;
     }
     if (g.type === 'body' && !g.moved && g.wasSelected) {

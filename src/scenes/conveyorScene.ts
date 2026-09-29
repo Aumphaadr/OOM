@@ -6,7 +6,7 @@ import { NumberObject, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
 import { clipFromObject, spawnFromClip } from '../core/clipboard';
 import { drawDeleteBadge, DELETE_R } from '../render/widgets';
-import { icon } from '../ui/icons';
+import { icon, drawIcon } from '../icons';
 
 const CART_W = 66;
 const CART_H = 50;
@@ -196,8 +196,8 @@ export class ConveyorScene implements Scene {
       </div>
       <div class="series-row">
         <span class="field">участков: <b id="section-count"></b></span>
-        <button id="section-add" class="btn ghost">+</button>
-        <button id="section-del" class="btn ghost">−</button>
+        <button id="section-add" class="btn ghost" title="Добавить участок">${icon('plus', 14)}</button>
+        <button id="section-del" class="btn ghost" title="Убрать последний участок">${icon('minus', 14)}</button>
       </div>
       <div class="series-row">
         <label class="field tp-check" style="flex:2"><input type="checkbox" id="belt-loop" /> кольцо (выход → вход)</label>
@@ -266,7 +266,7 @@ export class ConveyorScene implements Scene {
   private updatePanel(): void {
     if (this.reverseBtn) {
       this.reverseBtn.innerHTML =
-        `<span class="ic">${icon('swap', 13)}</span>Лента: ${this.reversed ? 'реверс' : 'вперёд'}`;
+        `<span class="ic">${icon('arrow-left-right', 13)}</span>Лента: ${this.reversed ? 'реверс' : 'вперёд'}`;
     }
     if (this.countLabel) this.countLabel.textContent = String(this.sections.length);
   }
@@ -822,8 +822,7 @@ export class ConveyorScene implements Scene {
     g.textBaseline = 'top';
     g.fillText(this.sectionLetter(i), r.x + 8, r.y + 6);
     g.globalAlpha = 0.45;
-    g.textAlign = 'center';
-    g.fillText('⋮⋮', r.x + r.w / 2, r.y + 4);
+    drawIcon(g, 'grip-vertical', r.x + r.w / 2, r.y + 12, 14, theme.textSecondary);
     g.globalAlpha = 1;
 
     g.textAlign = 'center';
@@ -841,9 +840,8 @@ export class ConveyorScene implements Scene {
       g.arc(t.x, t.y, 11, 0, Math.PI * 2);
       g.fill();
       g.stroke();
-      g.fillStyle = tool.hidden ? theme.bgPrimary : theme.textSecondary;
-      g.font = 'bold 13px Inter, sans-serif';
-      g.fillText('?', t.x, t.y + 0.5);
+      // чёрный ящик: закрашенный куб — подпись молотка спрятана
+      drawIcon(g, 'cube-fill', t.x, t.y, 13, tool.hidden ? theme.bgPrimary : theme.textSecondary);
     } else {
       g.fillStyle = theme.textSecondary;
       g.font = '11px Inter, sans-serif';

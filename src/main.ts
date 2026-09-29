@@ -1,5 +1,5 @@
 import { Session } from './core/session';
-import { applyIcons } from './ui/icons';
+import { applyIcons, decoratePictograms, watchPictograms } from './icons';
 import { CanvasHost } from './render/canvasHost';
 import { Shell } from './ui/shell';
 import { BoxesScene } from './scenes/boxesScene';
@@ -16,6 +16,9 @@ import { loadLesson } from './lessons/lesson';
 import { PRESETS } from './lessons/presets';
 
 applyIcons(document);
+// пиктограммы-метки в текстах (субтитры, задания, учебник) — значками набора
+decoratePictograms(document.body);
+watchPictograms(document.body);
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 

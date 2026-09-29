@@ -33,6 +33,8 @@
   --danger: #be4632;
   --danger-border: #dc6450;
   --danger-glow: #ff8264;
+
+  --gold: #ffd700;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -104,6 +106,9 @@ body {
   background: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .fn-row .fn-mini:hover { color: var(--text-primary); border-color: var(--accent-border); }
 
@@ -228,6 +233,11 @@ body {
    flex-элемент), поэтому margin не нужен: gap сам исчезает, когда иконка одна */
 .btn .ic { margin-right: 0; }
 .ic .icon { display: block; }
+/* Пиктограмма-метка в строке текста (субтитры, задания, учебник): значок
+   набора размером со строку вместо символа шрифта */
+.pic { display: inline-flex; vertical-align: -0.18em; }
+.pic .icon { display: block; width: 1.15em; height: 1.15em; }
+.pic[data-pic="star-fill"] { color: var(--gold); }
 button[data-icon] .icon { display: block; margin: 0 auto; }
 .topbar h1 { display: flex; align-items: center; gap: 2px; }
 
@@ -258,12 +268,12 @@ button[data-icon] .icon { display: block; margin: 0 auto; }
 .panel h3 { color: var(--accent); font-size: 1rem; margin-bottom: 10px; font-weight: 600; }
 .panel h3 .panel-caret {
   float: right;
+  display: inline-flex;
   color: var(--text-secondary);
-  font-size: 1.25rem;
-  line-height: 1;
-  padding: 0 2px;
+  padding: 1px 2px 0;
   user-select: none;
 }
+.panel h3 .panel-caret .icon { display: block; }
 .panel h3:hover .panel-caret { color: var(--accent); }
 
 .tool-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }

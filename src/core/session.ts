@@ -784,7 +784,7 @@ export class Session {
     this.emit({
       kind: 'point-moved',
       object: pt,
-      note: `⟳ ${pt.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+      note: `${dir === 'ccw' ? '↺' : '↻'} ${pt.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
     });
     return true;
   }
@@ -804,7 +804,7 @@ export class Session {
     this.emit({
       kind: 'point-moved',
       object: pt,
-      note: `🪞 ${pt.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
+      note: `${axis === 'x' ? '↕' : '↔'} ${pt.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}: → (${pt.x.toDisplay()}; ${pt.y.toDisplay()})`,
     });
     return true;
   }
@@ -922,7 +922,7 @@ export class Session {
     if (!p || p.kind !== 'polygon') return false;
     const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
     p.vertices = before.map((v) => axis === 'x' ? { x: v.x, y: v.y.neg() } : { x: v.x.neg(), y: v.y });
-    return this.logPolyMotion(p, before, `🪞 ${p.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
+    return this.logPolyMotion(p, before, `${axis === 'x' ? '↕' : '↔'} ${p.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
   }
 
   /** Поворот фигуры на 90° вокруг нуля — как у точек, только всем строем. */
@@ -932,7 +932,7 @@ export class Session {
     const before = p.vertices.map((v) => ({ x: v.x, y: v.y }));
     p.vertices = before.map((v) =>
       dir === 'ccw' ? { x: v.y.neg(), y: v.x } : { x: v.y, y: v.x.neg() });
-    return this.logPolyMotion(p, before, `⟳ ${p.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
+    return this.logPolyMotion(p, before, `${dir === 'ccw' ? '↺' : '↻'} ${p.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
   }
 
   /**
@@ -1062,7 +1062,7 @@ export class Session {
     const before: CircleState = { cx: c.cx, cy: c.cy, r: c.r };
     if (axis === 'x') c.cy = c.cy.neg();
     else c.cx = c.cx.neg();
-    return this.logCircleMotion(c, before, `🪞 ${c.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
+    return this.logCircleMotion(c, before, `${axis === 'x' ? '↕' : '↔'} ${c.label} отразилась от оси ${axis === 'x' ? 'X' : 'Y'}`);
   }
 
   /** Поворот на 90° вокруг нуля: едет центр, форма не меняется. */
@@ -1079,7 +1079,7 @@ export class Session {
       c.cy = c.cx.neg();
       c.cx = nx;
     }
-    return this.logCircleMotion(c, before, `⟳ ${c.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
+    return this.logCircleMotion(c, before, `${dir === 'ccw' ? '↺' : '↻'} ${c.label} повернулась на 90° ${dir === 'ccw' ? 'против' : 'по'} часовой`);
   }
 
   /** Молоток по окружности: ×k/÷k — гомотетия (центр ×k, радиус ×|k|). */
@@ -1755,7 +1755,7 @@ export class Session {
       // воскрешение: тот же экземпляр возвращается на доску
       this.objects.set(last.object.id, last.object);
       this.emit({ kind: 'object-spawned', object: last.object });
-      this.emit({ kind: 'undo', objectId: last.object.id, note: '⟲ удаление отменено' });
+      this.emit({ kind: 'undo', objectId: last.object.id, note: '↶ удаление отменено' });
       return true;
     }
     if (last.kind === 'transfer') {
@@ -1769,7 +1769,7 @@ export class Session {
       this.emit({
         kind: 'undo',
         objectId: last.fromId,
-        note: `⟲ переливание отменено: снова ${from.value.toDisplay()} и ${to.value.toDisplay()}`,
+        note: `↶ переливание отменено: снова ${from.value.toDisplay()} и ${to.value.toDisplay()}`,
       });
       return true;
     }
@@ -1777,14 +1777,14 @@ export class Session {
     if (!obj) return this.undo(); // объект уже удалён — отматываем дальше
     if (last.kind === 'spawn') {
       this.removeObject(last.objectId, true); // тихо: без встречной записи в журнал
-      this.emit({ kind: 'undo', objectId: last.objectId, note: '⟲ создание отменено' });
+      this.emit({ kind: 'undo', objectId: last.objectId, note: '↶ создание отменено' });
       return true;
     }
 
     if (last.kind === 'number' && obj.kind === 'number') {
       obj.value = last.before;
       obj.trail.pop();
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ вернулись к ${last.before.toDisplay()}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ вернулись к ${last.before.toDisplay()}` });
       return true;
     }
     if (last.kind === 'tape' && obj.kind === 'tape') {
@@ -1793,7 +1793,7 @@ export class Session {
       obj.whole = last.before.whole;
       obj.strictGrid = last.before.strictGrid;
       obj.unitLen = last.before.unitLen;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label}: ${this.tapePieces(obj)}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${obj.label}: ${this.tapePieces(obj)}` });
       return true;
     }
     if (last.kind === 'rect' && obj.kind === 'rect') {
@@ -1801,7 +1801,7 @@ export class Session {
       obj.h = last.before.h;
       obj.cutsX = [...last.before.cutsX];
       obj.cutsY = [...last.before.cutsY];
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.rectNote(obj)}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${this.rectNote(obj)}` });
       return true;
     }
     if (last.kind === 'point' && obj.kind === 'point') {
@@ -1810,7 +1810,7 @@ export class Session {
       this.emit({
         kind: 'undo',
         objectId: obj.id,
-        note: `⟲ ${obj.label} вернулась в (${obj.x.toDisplay()}; ${obj.y.toDisplay()})`,
+        note: `↶ ${obj.label} вернулась в (${obj.x.toDisplay()}; ${obj.y.toDisplay()})`,
       });
       return true;
     }
@@ -1820,7 +1820,7 @@ export class Session {
       this.emit({
         kind: 'undo',
         objectId: obj.id,
-        note: `⟲ ${obj.label} снова (${obj.dx.toDisplay()}; ${obj.dy.toDisplay()})`,
+        note: `↶ ${obj.label} снова (${obj.dx.toDisplay()}; ${obj.dy.toDisplay()})`,
       });
       return true;
     }
@@ -1828,29 +1828,29 @@ export class Session {
       obj.w = last.before.w;
       obj.d = last.before.d;
       obj.h = last.before.h;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${this.cuboidNote(obj)}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${this.cuboidNote(obj)}` });
       return true;
     }
     if (last.kind === 'function' && obj.kind === 'function') {
       obj.formula = last.before.formula;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label}(x) = ${obj.formula || '…'}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${obj.label}(x) = ${obj.formula || '…'}` });
       return true;
     }
     if (last.kind === 'polygon' && obj.kind === 'polygon') {
       obj.vertices = last.before.map((v) => ({ x: v.x, y: v.y }));
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} вернулась на место` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${obj.label} вернулась на место` });
       return true;
     }
     if (last.kind === 'circle' && obj.kind === 'circle') {
       obj.cx = last.before.cx;
       obj.cy = last.before.cy;
       obj.r = last.before.r;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} вернулась на место` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${obj.label} вернулась на место` });
       return true;
     }
     if (last.kind === 'angle' && obj.kind === 'angle') {
       obj.deg = last.before.deg;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ ${obj.label} снова ${obj.deg.toDisplay()}°` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ ${obj.label} снова ${obj.deg.toDisplay()}°` });
       return true;
     }
     if (last.kind === 'equation' && obj.kind === 'equation') {
@@ -1860,7 +1860,7 @@ export class Session {
       this.emit({
         kind: 'undo',
         objectId: obj.id,
-        note: `⟲ ${linFormText(obj.left, obj.name)} = ${linFormText(obj.right, obj.name)}`,
+        note: `↶ ${linFormText(obj.left, obj.name)} = ${linFormText(obj.right, obj.name)}`,
       });
       return true;
     }
@@ -1868,7 +1868,7 @@ export class Session {
       obj.ops = [...last.before.ops];
       obj.rhs = last.before.rhs;
       obj.revealed = last.before.revealed;
-      this.emit({ kind: 'undo', objectId: obj.id, note: `⟲ весы: ${exprFor(obj)} = ${obj.rhs.toDisplay()}` });
+      this.emit({ kind: 'undo', objectId: obj.id, note: `↶ весы: ${exprFor(obj)} = ${obj.rhs.toDisplay()}` });
       return true;
     }
     return this.undo();

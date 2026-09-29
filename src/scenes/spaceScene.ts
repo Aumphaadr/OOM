@@ -4,7 +4,7 @@ import { drawHammer } from '../render/hammer';
 import { FlyingLabels, wobbleAngle } from '../render/motion';
 import { CuboidObject, cuboidDims, cuboidVolume, visibleLabel } from '../core/model';
 import { Rational } from '../core/rational';
-import { icon } from '../ui/icons';
+import { icon } from '../icons';
 
 const S = 34; // пикселей на ребро кубика
 const HANDLE_R = 9;
@@ -129,7 +129,7 @@ export class SpaceScene implements Scene {
     this.card.hidden = true;
     this.card.innerHTML = `
       <div class="task-head"><b id="sc-title">Тело</b>
-        <span class="task-actions"><button id="sc-close" class="btn ghost" title="Закрыть">${icon('close', 12)}</button></span>
+        <span class="task-actions"><button id="sc-close" class="btn ghost" title="Закрыть">${icon('x', 12)}</button></span>
       </div>
       <label class="field tp-check"><input type="checkbox" id="sc-w" /> показывать ширину</label>
       <label class="field tp-check"><input type="checkbox" id="sc-d" /> показывать глубину</label>
